@@ -1,0 +1,63 @@
+# ==========================================
+# Python: Byte-compiled / optimized files
+# ==========================================
+__pycache__/
+*.py[cod]
+*$py.class
+
+# ==========================================
+# Virtual Environments
+# ==========================================
+.venv/
+venv/
+env/
+ENV/
+
+# ==========================================
+# Distribution / Packaging (from pip install -e .)
+# ==========================================
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# ==========================================
+# Unit Tests / Coverage Reports
+# ==========================================
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# ==========================================
+# IDEs and Text Editors
+# ==========================================
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ==========================================
+# OS Generated Files (Windows / macOS)
+# ==========================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# ==========================================
+# Project Specific: Large Media Files
+# (Prevents accidentally pushing massive videos to Git)
+# ==========================================
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.wav
+*.mp3
+# If you create a folder for testing video assets, you can ignore it here:
+# /test_assets/
