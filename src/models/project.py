@@ -130,6 +130,42 @@ class Project:
             return track.split_clip(clip_id, global_time)
         return None
 
+    def move_clip_to_track(
+        self,
+        clip_id: str,
+        target_track_index: int,
+        new_timeline_position: Optional[float] = None,
+    ) -> bool:
+        """Moves a Clip from its current track to a target track by track index.
+
+        Args:
+            clip_id (str): UUID of the clip to move.
+            target_track_index (int): Index of the destination track.
+            new_timeline_position (Optional[float]): Optional new timeline position in seconds.
+
+        Returns:
+            bool: True if the clip was found and moved successfully, False otherwise.
+        """
+        if not (0 <= target_track_index < len(self.tracks)):
+            return False
+
+        source_tuple = self.find_clip_by_id(clip_id)
+        if not source_tuple:
+            return False
+
+        source_track, clip = source_tuple
+        target_track = self.tracks[target_track_index]
+
+        if new_timeline_position is not None:
+            clip.timeline_position = max(0.0, float(new_timeline_position))
+
+        if source_track is not target_track:
+            source_track.clips.remove(clip)
+            target_track.clips.append(clip)
+
+        target_track.clips.sort(key=lambda c: c.timeline_position)
+        return True
+
     def get_total_duration(self) -> float:
         """Calculates the maximum end timestamp across all tracks and clips in the project.
 

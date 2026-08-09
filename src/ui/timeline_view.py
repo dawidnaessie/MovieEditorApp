@@ -1,8 +1,8 @@
-"""Production Multi-Track Timeline Canvas and View with Dynamic Zoom and Interactive Clip Moving.
+"""Production Multi-Track Timeline Canvas and View with Dynamic Zoom and Interactive Multi-Track Clip Moving.
 
 Features:
 - Track headers rendered on solid QFrames with explicit badges, preventing text clipping.
-- Click-and-drag clip repositioning (moving clips to new timeline positions with live feedback).
+- Click-and-drag clip repositioning both horizontally (time) and vertically between tracks (e.g. Video 1 <-> Video 2).
 - Playhead indicator scrubbing strictly restricted to the top ruler arrowhead bar.
 - Dynamic timeline zooming (Ctrl + Wheel / Touchpad pinch, toolbar slider, zoom in/out, fit to screen).
 - Adaptive ruler tick intervals based on zoom level (seconds, minutes, or frame divisions).
@@ -89,13 +89,13 @@ def calculate_clip_pixel_width(
 
 
 class ClipWidget(QWidget):
-    """A professional NLE clip block with title, filmstrip thumbnails, click-and-drag moving, razor cutting, and edge trimming."""
+    """A professional NLE clip block with title, filmstrip thumbnails, cross-track moving, razor cutting, and edge trimming."""
 
     clip_selected = pyqtSignal(object)  # Emits self (ClipWidget)
     delete_requested = pyqtSignal(object)  # Emits self (ClipWidget)
     split_requested = pyqtSignal(str, float)  # (clip_id, global_split_time)
     trim_requested = pyqtSignal(object, float, bool)  # (self, new_val, is_left)
-    clip_moved = pyqtSignal(object, float)  # (self, new_timeline_position)
+    clip_moved = pyqtSignal(object, float, int)  # (self, new_timeline_position, target_track_index)
 
     def __init__(
         self,
@@ -129,6 +129,7 @@ class ClipWidget(QWidget):
         # Drag-to-move state
         self._is_moving: bool = False
         self._drag_start_x: float = 0.0
+        self._drag_start_y: float = 0.0
         self._orig_pos: float = 0.0
         self._orig_dur: float = 0.0
         self._orig_w: int = 0
@@ -175,8 +176,20 @@ class ClipWidget(QWidget):
         layout.addLayout(header_layout)
         layout.addStretch(1)
 
-        self.setToolTip(f"🎬 {clip_name}\nTrack: {track_index + 1}\nDuration: {self.duration:.2f}s\n[Click & drag to move, Drag edge to trim, Razor (C) to cut]")
+        self.setToolTip(f"🎬 {clip_name}\nTrack: {track_index + 1}\nDuration: {self.duration:.2f}s\n[Drag across time or tracks, Drag edge to trim, Razor (C) to cut]")
         self.show()
+
+    def _find_timeline_canvas(self) -> Optional["TimelineCanvas"]:
+        """Finds the parent TimelineCanvas widget in the hierarchy."""
+        parent = self.parent()
+        while parent:
+            if isinstance(parent, TimelineCanvas) or parent.__class__.__name__ == "TimelineCanvas":
+                return parent
+            parent = parent.parent()
+        win = self.window()
+        if win and hasattr(win, "timeline_view") and hasattr(win.timeline_view, "canvas"):
+            return win.timeline_view.canvas
+        return None
 
     def update_zoom(self, pixels_per_second: float) -> None:
         """Recalculates X position and pixel width when timeline zoom level changes."""
@@ -285,6 +298,7 @@ class ClipWidget(QWidget):
             # 3. Drag-to-Move Initiation (Body click)
             self._is_moving = True
             self._drag_start_x = event.globalPosition().x()
+            self._drag_start_y = event.globalPosition().y()
             self._orig_x = self.x()
             self._orig_pos = self.timeline_position
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
@@ -302,7 +316,16 @@ class ClipWidget(QWidget):
             new_x = max(0, int(self._orig_x + dx))
             new_pos = max(0.0, self._orig_pos + (dx / self.pixels_per_second))
             self.move(new_x, self.y())
-            self.setToolTip(f"🎬 {self.clip_name}\nPosition: {new_pos:.2f}s (Duration: {self.duration:.2f}s)")
+
+            # Identify target track name based on vertical cursor position
+            target_track_name = f"Track {self.track_index + 1}"
+            canvas = self._find_timeline_canvas()
+            if canvas:
+                target_idx = canvas.get_track_index_at_global_y(int(event.globalPosition().y()))
+                if target_idx is not None and 0 <= target_idx < len(canvas.track_strips):
+                    target_track_name = canvas.track_strips[target_idx].track_name
+
+            self.setToolTip(f"🎬 {self.clip_name}\nTarget: {target_track_name}\nPosition: {new_pos:.2f}s (Duration: {self.duration:.2f}s)")
             event.accept()
             return
 
@@ -349,9 +372,18 @@ class ClipWidget(QWidget):
                 self.timeline_position = new_pos
                 new_x = int(new_pos * self.pixels_per_second)
                 self.move(new_x, self.y())
+
+                # Find destination track index
+                target_track_index = self.track_index
+                canvas = self._find_timeline_canvas()
+                if canvas:
+                    target_idx = canvas.get_track_index_at_global_y(int(event.globalPosition().y()))
+                    if target_idx is not None and 0 <= target_idx < len(canvas.track_strips):
+                        target_track_index = target_idx
+
                 self._is_moving = False
                 self.setCursor(Qt.CursorShape.OpenHandCursor)
-                self.clip_moved.emit(self, new_pos)
+                self.clip_moved.emit(self, new_pos, target_track_index)
                 event.accept()
                 return
 
@@ -456,7 +488,7 @@ class TrackLaneWidget(QWidget):
     clip_delete_requested = pyqtSignal(object)
     split_requested = pyqtSignal(str, float)
     trim_requested = pyqtSignal(object, float, bool)
-    clip_moved = pyqtSignal(object, float)
+    clip_moved = pyqtSignal(object, float, int)
 
     def __init__(self, track_index: int, pixels_per_second: float = DEFAULT_PIXELS_PER_SECOND):
         super().__init__()
@@ -632,7 +664,7 @@ class TrackStripWidget(QWidget):
     clip_delete_requested = pyqtSignal(object)
     split_requested = pyqtSignal(str, float)
     trim_requested = pyqtSignal(object, float, bool)
-    clip_moved = pyqtSignal(object, float)
+    clip_moved = pyqtSignal(object, float, int)
 
     def __init__(
         self,
@@ -719,7 +751,7 @@ class TimelineCanvas(QWidget):
     clip_delete_requested = pyqtSignal(object)
     split_requested = pyqtSignal(str, float)
     trim_requested = pyqtSignal(object, float, bool)
-    clip_moved = pyqtSignal(object, float)
+    clip_moved = pyqtSignal(object, float, int)
     zoom_changed = pyqtSignal(float)
 
     def __init__(
@@ -762,6 +794,22 @@ class TimelineCanvas(QWidget):
         # 3. Playhead Overlay
         self.playhead = PlayheadOverlay(self)
         self._reposition_playhead()
+
+    def get_track_index_at_global_y(self, global_y: int) -> Optional[int]:
+        """Calculates which track strip is located at the given global Y coordinate."""
+        for idx, strip in enumerate(self.track_strips):
+            top_y = strip.mapToGlobal(QPoint(0, 0)).y()
+            bottom_y = top_y + strip.height()
+            if top_y <= global_y <= bottom_y:
+                return idx
+        if self.track_strips:
+            first_top = self.track_strips[0].mapToGlobal(QPoint(0, 0)).y()
+            last_bottom = self.track_strips[-1].mapToGlobal(QPoint(0, 0)).y() + self.track_strips[-1].height()
+            if global_y < first_top:
+                return 0
+            if global_y > last_bottom:
+                return len(self.track_strips) - 1
+        return None
 
     def set_zoom_level(self, pixels_per_second: float) -> None:
         """Dynamically scales timeline zoom level and rescales all track clips."""
@@ -1013,7 +1061,7 @@ class TimelineView(QWidget):
     clip_delete_requested = pyqtSignal(object)
     split_requested = pyqtSignal(str, float)
     trim_requested = pyqtSignal(object, float, bool)
-    clip_moved = pyqtSignal(object, float)
+    clip_moved = pyqtSignal(object, float, int)
     split_at_playhead_requested = pyqtSignal()
     tool_changed = pyqtSignal(str)
 

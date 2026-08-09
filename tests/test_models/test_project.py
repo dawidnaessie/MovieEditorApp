@@ -143,3 +143,38 @@ def test_project_json_round_trip():
     assert len(restored.tracks) == 1
     assert len(restored.tracks[0].clips) == 1
     assert restored.tracks[0].clips[0].name == "Shot 1"
+
+
+def test_project_move_clip_to_track():
+    """Validates transferring a clip between tracks (e.g. Video 1 <-> Video 2) and updating position."""
+    proj = Project(name="Track Move Project")
+    v1 = proj.add_track("Video 1")
+    v2 = proj.add_track("Video 2")
+
+    clip = Clip(file_path="part1.mp4", name="Part 1", source_start=0.0, source_end=10.0, timeline_position=2.0)
+    v1.clips.append(clip)
+
+    assert len(v1.clips) == 1
+    assert len(v2.clips) == 0
+
+    # 1. Move clip from Video 1 (idx 0) to Video 2 (idx 1) with new timeline position
+    success = proj.move_clip_to_track(clip.id, target_track_index=1, new_timeline_position=5.5)
+    assert success is True
+    assert len(v1.clips) == 0
+    assert len(v2.clips) == 1
+    assert v2.clips[0] is clip
+    assert clip.timeline_position == 5.5
+
+    # 2. Move clip back from Video 2 (idx 1) to Video 1 (idx 0)
+    success2 = proj.move_clip_to_track(clip.id, target_track_index=0, new_timeline_position=0.0)
+    assert success2 is True
+    assert len(v1.clips) == 1
+    assert len(v2.clips) == 0
+    assert v1.clips[0] is clip
+    assert clip.timeline_position == 0.0
+
+    # 3. Invalid track index
+    assert proj.move_clip_to_track(clip.id, target_track_index=99) is False
+    # 4. Invalid clip id
+    assert proj.move_clip_to_track("non-existent-id", target_track_index=1) is False
+

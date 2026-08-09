@@ -451,19 +451,54 @@ class MainWindow(QMainWindow):
         self.timeline_view.set_max_duration(self.get_max_timeline_duration())
         self._render_current_frame(force=True)
 
-    @pyqtSlot(object, float)
-    def _on_clip_moved(self, clip_widget: ClipWidget, new_timeline_pos: float) -> None:
-        """Updates clip's timeline position in data model when dragged across timeline."""
-        track_index = getattr(clip_widget, "track_index", -1)
-        if not (0 <= track_index < len(self.project.tracks)):
+    @pyqtSlot(object, float, int)
+    def _on_clip_moved(
+        self,
+        clip_widget: ClipWidget,
+        new_timeline_pos: float,
+        target_track_index: int = -1,
+    ) -> None:
+        """Updates clip's timeline position and moves between tracks (e.g. Video 1 <-> Video 2)."""
+        source_track_index = getattr(clip_widget, "track_index", -1)
+        clip_id = getattr(clip_widget, "clip_id", "")
+        if not clip_id:
             return
 
-        track = self.project.tracks[track_index]
-        clip_id = getattr(clip_widget, "clip_id", "")
-        matching = [c for c in track.clips if c.id == clip_id]
-        if matching:
-            matching[0].timeline_position = max(0.0, new_timeline_pos)
-            track.clips.sort(key=lambda c: c.timeline_position)
+        if target_track_index < 0:
+            target_track_index = source_track_index
+
+        if not (0 <= target_track_index < len(self.project.tracks)):
+            target_track_index = max(0, min(len(self.project.tracks) - 1, source_track_index))
+
+        # Check track compatibility (e.g., video clips move between video tracks)
+        source_track = self.project.tracks[source_track_index] if 0 <= source_track_index < len(self.project.tracks) else None
+        target_track = self.project.tracks[target_track_index]
+
+        # Prevent moving video clip to audio track if types mismatch
+        if source_track and source_track.track_type != target_track.track_type:
+            target_track_index = source_track_index
+
+        # Move clip in the Project model
+        moved = self.project.move_clip_to_track(
+            clip_id=clip_id,
+            target_track_index=target_track_index,
+            new_timeline_position=new_timeline_pos,
+        )
+
+        if moved and target_track_index != source_track_index:
+            # Rebuild widgets so the visual clip block sits on the target track lane
+            self._rebuild_timeline_widgets()
+            # Restore selection on the moved clip
+            for strip in self.timeline_view.canvas.track_strips:
+                for cw in strip.lane.clip_widgets:
+                    if cw.clip_id == clip_id:
+                        cw.set_selected(True)
+                        self.selected_clip_widget = cw
+                        break
+        else:
+            clip_widget.timeline_position = max(0.0, new_timeline_pos)
+            new_x = int(clip_widget.timeline_position * clip_widget.pixels_per_second)
+            clip_widget.move(new_x, clip_widget.y())
 
         self.timeline_view.set_max_duration(self.get_max_timeline_duration())
         self._render_current_frame(force=True)

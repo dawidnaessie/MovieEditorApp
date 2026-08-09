@@ -302,3 +302,56 @@ def test_clip_drag_moving_and_ruler_only_scrubbing(main_window):
     assert canvas.is_scrubbing is False
 
 
+def test_cross_track_clip_moving_between_video1_and_video2(main_window):
+    """Validates moving clip parts between Video 1 and Video 2 dynamically."""
+    main_window.project.tracks[0].clips.clear()
+    main_window.project.tracks[1].clips.clear()
+
+    clip = Clip(
+        file_path="sample.mp4",
+        name="Layered Clip",
+        source_start=0.0,
+        source_end=20.0,
+        timeline_position=0.0,
+    )
+    main_window.project.tracks[0].clips.append(clip)
+    main_window._rebuild_timeline_widgets()
+
+    # Verify initial state: 1 clip on Video 1, 0 on Video 2
+    assert len(main_window.project.tracks[0].clips) == 1
+    assert len(main_window.project.tracks[1].clips) == 0
+
+    # 1. Split clip at 10.0s into two parts
+    main_window._on_split_requested(clip.id, 10.0)
+    assert len(main_window.project.tracks[0].clips) == 2
+    part1 = main_window.project.tracks[0].clips[0]
+    part2 = main_window.project.tracks[0].clips[1]
+    assert part1.duration == 10.0
+    assert part2.duration == 10.0
+
+    # 2. Move part2 from Video 1 (idx 0) to Video 2 (idx 1) at timeline position 5.0s
+    clip_w2 = [cw for cw in main_window.timeline_view.canvas.track_strips[0].lane.clip_widgets if cw.clip_id == part2.id][0]
+    main_window._on_clip_moved(clip_w2, new_timeline_pos=5.0, target_track_index=1)
+
+    # Verify part1 remains on Video 1, part2 is now on Video 2
+    assert len(main_window.project.tracks[0].clips) == 1
+    assert len(main_window.project.tracks[1].clips) == 1
+    assert main_window.project.tracks[0].clips[0].id == part1.id
+    assert main_window.project.tracks[1].clips[0].id == part2.id
+    assert part2.timeline_position == 5.0
+
+    # Verify widgets were rebuilt on the proper track strips
+    video1_widgets = main_window.timeline_view.canvas.track_strips[0].lane.clip_widgets
+    video2_widgets = main_window.timeline_view.canvas.track_strips[1].lane.clip_widgets
+    assert len(video1_widgets) == 1
+    assert len(video2_widgets) == 1
+    assert video2_widgets[0].clip_id == part2.id
+
+    # 3. Move part2 back from Video 2 (idx 1) to Video 1 (idx 0) at 12.0s
+    main_window._on_clip_moved(video2_widgets[0], new_timeline_pos=12.0, target_track_index=0)
+    assert len(main_window.project.tracks[0].clips) == 2
+    assert len(main_window.project.tracks[1].clips) == 0
+    assert part2.timeline_position == 12.0
+
+
+
