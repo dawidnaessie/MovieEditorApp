@@ -164,12 +164,16 @@ class MediaPoolView(QWidget):
 
     @pyqtSlot()
     def _open_import_dialog(self) -> None:
-        """Opens standard QFileDialog to select video files."""
+        """Opens standard QFileDialog to select video and image media files."""
         file_paths, _ = QFileDialog.getOpenFileNames(
             self,
             "Import Media Files",
             "",
-            "Video Files (*.mp4 *.mov *.avi *.mkv *.webm);;All Files (*)",
+            "Media Files (*.mp4 *.mov *.avi *.mkv *.webm *.png *.jpg *.jpeg *.webp *.bmp *.mp3 *.wav);;"
+            "Video Files (*.mp4 *.mov *.avi *.mkv *.webm);;"
+            "Image Files (*.png *.jpg *.jpeg *.webp *.bmp);;"
+            "Audio Files (*.mp3 *.wav *.aac *.flac *.m4a *.ogg);;"
+            "All Files (*)",
         )
 
         for file_path in file_paths:
@@ -187,10 +191,14 @@ class MediaPoolView(QWidget):
             if existing_item and existing_item.data(Qt.ItemDataRole.UserRole) == file_path:
                 return
 
+        from models.clip import detect_media_type
+        mtype = detect_media_type(file_path)
+        icon = "🖼️" if mtype == "image" else ("🔊" if mtype == "audio" else "🎬")
+
         file_name = os.path.basename(file_path)
-        item = QListWidgetItem(f"🎬  {file_name}")
+        item = QListWidgetItem(f"{icon}  {file_name}")
         item.setData(Qt.ItemDataRole.UserRole, file_path)
-        item.setToolTip(f"File: {file_path}\nDrag onto timeline tracks to edit")
+        item.setToolTip(f"File: {file_path}\nType: {mtype.capitalize()}\nDrag onto timeline tracks to edit")
         self.list_widget.addItem(item)
         self.media_imported.emit(file_path)
 

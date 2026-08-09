@@ -1,3 +1,13 @@
+"""Main window and application coordinator conforming to Phase 2 guidelines.
+
+Features:
+- CapCut-inspired sleek dark styling with glowing cyan/blue accents and header bar.
+- Dedicated Export action button and modal dialog for MP4/WebM rendering.
+- Scissors/Razor tool splitting (click split and split-at-playhead Ctrl+B).
+- Interactive edge trimming with instant live updates and data model sync.
+- Multi-track timeline synchronization and 60 FPS playhead preview.
+"""
+
 import os
 import time
 from typing import List, Optional
@@ -14,20 +24,23 @@ from PyQt6.QtCore import (
     pyqtSignal,
     pyqtSlot,
 )
-from PyQt6.QtGui import QKeyEvent
-from PyQt6.QtMultimedia import QAudio, QAudioFormat, QAudioSink
+from PyQt6.QtGui import QFont, QKeyEvent
+from PyQt6.QtMultimedia import QAudioFormat, QAudioSink
 from PyQt6.QtWidgets import (
-
-    QListWidgetItem,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
     QMainWindow,
+    QPushButton,
     QSplitter,
     QVBoxLayout,
     QWidget,
 )
 
 from engine.preview_engine import PreviewEngine
-from models.clip import Clip
+from models.clip import Clip, detect_media_type
 from models.project import Project
+from .export_dialog import ExportDialog
 from .media_pool_view import MediaPoolView
 from .player_view import PlayerView
 from .timeline_view import ClipWidget, TimelineView
@@ -35,7 +48,7 @@ from .timeline_view import ClipWidget, TimelineView
 
 class WorkerSignals(QObject):
     """Signals for background thumbnail generation worker."""
-    thumbnails_ready = pyqtSignal(object, list, object)  # (clip_widget, list[np.ndarray], worker)
+    thumbnails_ready = pyqtSignal(object, list, object)
 
 
 class ThumbnailWorker(QRunnable):
@@ -99,9 +112,44 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("AI Movie Editor - Studio")
-        self.resize(1360, 780)
-        self.setStyleSheet("background-color: #121214; color: #f4f4f5;")
+        self.setWindowTitle("AI Movie Editor - CapCut Studio")
+        self.setStyleSheet("""
+            QMainWindow {
+                background-color: #141416;
+                color: #f4f4f5;
+                font-family: 'Segoe UI', sans-serif;
+            }
+            QSplitter::handle {
+                background-color: #27272a;
+            }
+            QPushButton.export-btn {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0284c7, stop:1 #00e5ff);
+                color: #ffffff;
+                border: none;
+                border-radius: 5px;
+                padding: 6px 16px;
+                font-size: 12px;
+                font-weight: bold;
+            }
+            QPushButton.export-btn:hover {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0ea5e9, stop:1 #38bdf8);
+            }
+            QPushButton.export-btn:pressed {
+                background-color: #0369a1;
+            }
+        """)
+
+        # Responsive sizing
+        self.setMinimumSize(780, 500)
+        from PyQt6.QtGui import QGuiApplication
+        screen = QGuiApplication.primaryScreen()
+        if screen:
+            avail = screen.availableGeometry()
+            w = min(1280, max(850, int(avail.width() * 0.85)))
+            h = min(740, max(520, int(avail.height() * 0.85)))
+            self.resize(w, h)
+        else:
+            self.resize(1100, 680)
 
         # Thread pool and active worker tracking
         self.thread_pool = QThreadPool.globalInstance()
@@ -118,7 +166,7 @@ class MainWindow(QMainWindow):
         self.track_v2 = self.project.add_track("Video 2", track_type="video")
         self.track_a1 = self.project.add_track("Audio 1", track_type="audio")
 
-        # High-Precision Playback Timing State
+        # Playback Timing State
         self.current_playback_time: float = 0.0
         self._is_playing: bool = False
         self._playback_start_wall_time: float = 0.0
@@ -137,39 +185,72 @@ class MainWindow(QMainWindow):
         self.is_muted: bool = False
         self.audio_sink.setVolume(1.0)
 
-        # 3. Multi-Pane Splitter Layout
+        # 3. Main Central Layout
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         main_layout = QVBoxLayout(central_widget)
-        main_layout.setContentsMargins(8, 8, 8, 8)
+        main_layout.setContentsMargins(6, 6, 6, 6)
         main_layout.setSpacing(6)
+
+        # Top Header Bar (CapCut-inspired)
+        header_bar = QWidget()
+        header_bar.setFixedHeight(36)
+        header_bar.setStyleSheet("background-color: #18181b; border-bottom: 1px solid #27272a; border-radius: 4px;")
+        h_layout = QHBoxLayout(header_bar)
+        h_layout.setContentsMargins(10, 2, 10, 2)
+        h_layout.setSpacing(10)
+
+        lbl_app = QLabel("🎬  MovieEditor Studio")
+        lbl_app.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
+        lbl_app.setStyleSheet("color: #00e5ff;")
+        h_layout.addWidget(lbl_app)
+
+        self.lbl_proj_info = QLabel("• 1080p 30fps")
+        self.lbl_proj_info.setStyleSheet("color: #71717a; font-size: 11px;")
+        h_layout.addWidget(self.lbl_proj_info)
+
+        h_layout.addStretch()
+
+        self.btn_export = QPushButton("🚀 Export Video")
+        self.btn_export.setProperty("class", "export-btn")
+        self.btn_export.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_export.setToolTip("Export project as MP4 or WebM (Ctrl+E)")
+        self.btn_export.clicked.connect(self._open_export_dialog)
+        h_layout.addWidget(self.btn_export)
+
+        main_layout.addWidget(header_bar)
 
         # Main horizontal splitter (Media Pool on Left, Player & Timeline on Right)
         main_splitter = QSplitter(Qt.Orientation.Horizontal)
-        main_splitter.setStyleSheet("QSplitter::handle { background-color: #27272a; }")
 
         # Left pane: Media Pool
         self.media_pool_view = MediaPoolView()
+        self.media_pool_view.setMinimumWidth(160)
         main_splitter.addWidget(self.media_pool_view)
 
         # Right pane: Vertical splitter (Player on Top, Timeline on Bottom)
         right_splitter = QSplitter(Qt.Orientation.Vertical)
-        right_splitter.setStyleSheet("QSplitter::handle { background-color: #27272a; }")
 
         self.player_view = PlayerView()
+        self.player_view.setMinimumSize(300, 200)
+
         self.timeline_view = TimelineView()
+        self.timeline_view.setMinimumSize(300, 140)
+
         right_splitter.addWidget(self.player_view)
         right_splitter.addWidget(self.timeline_view)
-        right_splitter.setSizes([450, 270])
+        right_splitter.setStretchFactor(0, 3)
+        right_splitter.setStretchFactor(1, 2)
 
         main_splitter.addWidget(right_splitter)
-        main_splitter.setSizes([270, 1070])
+        main_splitter.setStretchFactor(0, 1)
+        main_splitter.setStretchFactor(1, 4)
 
         main_layout.addWidget(main_splitter)
 
-        # 4. High-Frequency (60 FPS) Animation Timer for Silky-Smooth Playhead and Playback
+        # 4. Playback Timer (~60 FPS)
         self.playback_timer = QTimer(self)
-        self.playback_timer.setInterval(16)  # ~60 FPS
+        self.playback_timer.setInterval(16)
         self.playback_timer.timeout.connect(self._on_playback_tick)
 
         # 5. Connect PlayerView Controls & Audio Signals
@@ -191,8 +272,11 @@ class MainWindow(QMainWindow):
         self.timeline_view.clip_dropped.connect(self._on_clip_dropped)
         self.timeline_view.clip_selected.connect(self._on_clip_selected)
         self.timeline_view.clip_delete_requested.connect(self._on_clip_delete_requested)
+        self.timeline_view.split_requested.connect(self._on_split_requested)
+        self.timeline_view.trim_requested.connect(self._on_trim_requested)
+        self.timeline_view.split_at_playhead_requested.connect(self._on_split_at_playhead)
 
-        # Locate sample video candidates and preload if available
+        # Preload initial sample if present
         video_candidates = [
             r"C:\Users\rastisx\Desktop\Crystal Castles - Celestica.mp4",
             r"C:\Users\rastisx\Desktop\0609 (1).mp4",
@@ -217,14 +301,13 @@ class MainWindow(QMainWindow):
                 file_path=sample_path,
                 timeline_position=0.0,
                 duration=sample_dur,
+                clip_id=initial_clip.id,
             )
             if clip_w:
                 self._load_thumbnails_async(clip_w, sample_path, 0.0, sample_dur)
 
         # Sync max timeline boundary with loaded clips
         self.timeline_view.set_max_duration(self.get_max_timeline_duration())
-
-        # Render initial frame at 0.0s
         self._render_current_frame(force=True)
 
     def get_max_timeline_duration(self) -> float:
@@ -258,7 +341,6 @@ class MainWindow(QMainWindow):
         thumbnails: List[np.ndarray],
         worker: object,
     ) -> None:
-        """Applies loaded thumbnail frames to the clip widget on the UI thread."""
         self._active_workers.discard(worker)
         try:
             from PyQt6 import sip
@@ -269,12 +351,10 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(object)
     def _on_clip_selected(self, clip_widget: ClipWidget) -> None:
-        """Stores the currently selected ClipWidget."""
         self.selected_clip_widget = clip_widget
 
     @pyqtSlot(object)
     def _on_clip_delete_requested(self, clip_widget: ClipWidget) -> None:
-        """Deletes the specified clip widget and its model representation."""
         self.selected_clip_widget = clip_widget
         self.delete_selected_clip()
 
@@ -284,83 +364,160 @@ class MainWindow(QMainWindow):
             return
 
         cw = self.selected_clip_widget
-
-        # Cancel any active background thumbnail workers for this clip widget
         for worker in list(self._active_workers):
             if getattr(worker, "clip_widget", None) is cw:
                 if hasattr(worker, "cancel"):
                     worker.cancel()
 
         track_index = getattr(cw, "track_index", -1)
-
         if 0 <= track_index < len(self.project.tracks):
             track = self.project.tracks[track_index]
-            # Match by path and timeline position
             matching = [
                 c for c in track.clips
-                if c.file_path == cw.file_path and abs(c.timeline_position - cw.timeline_position) < 0.01
+                if c.id == cw.clip_id or (c.file_path == cw.file_path and abs(c.timeline_position - cw.timeline_position) < 0.01)
             ]
             for m in matching:
                 track.clips.remove(m)
 
-        # Remove from UI canvas
         self.timeline_view.remove_clip_widget(cw)
         self.selected_clip_widget = None
 
-        # Update max duration boundary
         max_dur = self.get_max_timeline_duration()
         self.timeline_view.set_max_duration(max_dur)
         if self.current_playback_time > max_dur:
             self.current_playback_time = max_dur
 
-        # Re-cue audio if active
         if self._is_playing:
             self._start_audio()
 
-        # Update preview frame immediately
+        self._render_current_frame(force=True)
+
+    @pyqtSlot(str, float)
+    def _on_split_requested(self, clip_id: str, global_time: float) -> None:
+        """Splits the specified clip at global_time and refreshes the timeline blocks."""
+        res = self.project.split_clip(clip_id, global_time)
+        if not res:
+            return
+
+        self._rebuild_timeline_widgets()
+
+    @pyqtSlot()
+    def _on_split_at_playhead(self) -> None:
+        """Splits the active clip underneath the current playhead position."""
+        target_clip_id: Optional[str] = None
+
+        # 1. Prefer explicitly selected clip
+        if self.selected_clip_widget and hasattr(self.selected_clip_widget, "clip_id"):
+            cw = self.selected_clip_widget
+            if cw.timeline_position < self.current_playback_time < cw.timeline_position + cw.duration:
+                target_clip_id = cw.clip_id
+
+        # 2. Fallback to top-most active clip at playhead
+        if not target_clip_id:
+            match = self.project.find_clip_at(self.current_playback_time)
+            if match:
+                _, clip, _ = match
+                target_clip_id = clip.id
+
+        if target_clip_id:
+            self._on_split_requested(target_clip_id, self.current_playback_time)
+
+    @pyqtSlot(object, float, bool)
+    def _on_trim_requested(self, clip_widget: ClipWidget, new_value: float, is_left: bool) -> None:
+        """Applies edge trimming to the model and updates playhead bounds."""
+        track_index = getattr(clip_widget, "track_index", -1)
+        if not (0 <= track_index < len(self.project.tracks)):
+            return
+
+        track = self.project.tracks[track_index]
+        clip_id = getattr(clip_widget, "clip_id", "")
+
+        if is_left:
+            track.trim_clip_left(clip_id, new_value)
+        else:
+            track.trim_clip_right(clip_id, new_value)
+
+        self.timeline_view.set_max_duration(self.get_max_timeline_duration())
+        self._render_current_frame(force=True)
+
+    def _rebuild_timeline_widgets(self) -> None:
+        """Cleans and re-instantiates clip widgets matching the current project model."""
+        # Cancel running workers
+        for worker in list(self._active_workers):
+            if hasattr(worker, "cancel"):
+                worker.cancel()
+        self._active_workers.clear()
+
+        # Remove all existing widgets from all track strips
+        for strip in self.timeline_view.canvas.track_strips:
+            for cw in list(strip.lane.clip_widgets):
+                strip.lane.remove_clip(cw)
+
+        # Re-add matching clips from model
+        for t_idx, track in enumerate(self.project.tracks):
+            for clip in track.clips:
+                clip_w = self.timeline_view.add_clip(
+                    track_index=t_idx,
+                    file_path=clip.file_path,
+                    timeline_position=clip.timeline_position,
+                    duration=clip.duration,
+                    clip_id=clip.id,
+                )
+                if clip_w:
+                    self._load_thumbnails_async(clip_w, clip.file_path, clip.source_start, clip.duration)
+
+        self.timeline_view.set_max_duration(self.get_max_timeline_duration())
         self._render_current_frame(force=True)
 
     @pyqtSlot(str, int, float)
     def _on_clip_dropped(self, file_path: str, track_index: int, timeline_pos: float) -> None:
-        """Invoked when a media file is dragged and dropped onto a timeline track."""
+        """Invoked when a media file (video or image) is dropped onto a timeline track."""
         if not file_path or not os.path.exists(file_path):
             return
 
         if not (0 <= track_index < len(self.project.tracks)):
             return
 
-        # Ensure the media item is also registered in the Media Pool
         self.media_pool_view.add_media_item(file_path)
 
-        real_duration = self.preview_engine.get_media_duration(file_path)
-        if real_duration <= 0.0:
+        media_type = detect_media_type(file_path)
+        if media_type == "image":
             real_duration = 5.0
+            new_clip = Clip(
+                file_path=file_path,
+                name=os.path.basename(file_path),
+                media_type="image",
+                image_duration=real_duration,
+                timeline_position=timeline_pos,
+            )
+        else:
+            real_duration = self.preview_engine.get_media_duration(file_path)
+            if real_duration <= 0.0:
+                real_duration = 5.0
+            new_clip = Clip(
+                file_path=file_path,
+                name=os.path.basename(file_path),
+                source_start=0.0,
+                source_end=real_duration,
+                timeline_position=timeline_pos,
+                media_type=media_type,
+            )
 
-        new_clip = Clip(
-            file_path=file_path,
-            name=os.path.basename(file_path),
-            source_start=0.0,
-            source_end=real_duration,
-            timeline_position=timeline_pos,
-        )
         self.project.tracks[track_index].clips.append(new_clip)
 
-        # Place visual ClipWidget
         clip_w = self.timeline_view.add_clip(
             track_index=track_index,
             file_path=file_path,
             timeline_position=timeline_pos,
             duration=real_duration,
+            clip_id=new_clip.id,
         )
 
-        # Asynchronously extract filmstrip thumbnail frames
         if clip_w:
-            self._load_thumbnails_async(clip_w, file_path, 0.0, real_duration)
+            self._load_thumbnails_async(clip_w, file_path, new_clip.source_start, real_duration)
 
-        # Update max boundary for playhead
         self.timeline_view.set_max_duration(self.get_max_timeline_duration())
 
-        # Stop and re-cue audio if playing
         was_playing = self._is_playing
         self.current_playback_time = timeline_pos
         self._render_current_frame(force=True)
@@ -370,7 +527,6 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(float)
     def _on_timeline_seek(self, time_sec: float) -> None:
-        """Invoked when user clicks/scrubs on the timeline."""
         was_playing = self._is_playing
         self._stop_audio()
         max_dur = self.get_max_timeline_duration()
@@ -385,24 +541,20 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(str)
     def _on_media_imported(self, file_path: str) -> None:
-        """Preloads media metadata in the engine without blocking the UI."""
         self.preview_engine.get_media_info(file_path)
 
     @pyqtSlot(float)
     def _on_volume_changed(self, vol: float) -> None:
-        """Updates audio sink volume."""
         self.volume = vol
         if not self.is_muted:
             self.audio_sink.setVolume(vol)
 
     @pyqtSlot(bool)
     def _on_mute_toggled(self, is_muted: bool) -> None:
-        """Mutes/unmutes audio sink."""
         self.is_muted = is_muted
         self.audio_sink.setVolume(0.0 if is_muted else self.volume)
 
     def _start_audio(self) -> None:
-        """Starts streaming mixed multi-track audio from current playback position."""
         self._stop_audio()
         max_duration = self.get_max_timeline_duration()
         remaining_duration = max(0.05, max_duration - self.current_playback_time)
@@ -422,7 +574,6 @@ class MainWindow(QMainWindow):
             self.audio_sink.start(self.audio_buffer)
 
     def _stop_audio(self) -> None:
-        """Stops and cleans up audio playback sink and buffer cleanly."""
         if self.audio_sink:
             self.audio_sink.reset()
         if self.audio_buffer:
@@ -431,7 +582,6 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def toggle_play(self) -> None:
-        """Toggles between play and pause."""
         if self._is_playing:
             self.pause()
         else:
@@ -439,7 +589,6 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def play(self) -> None:
-        """Starts high-precision playback clock and synchronized audio."""
         max_duration = self.get_max_timeline_duration()
         if max_duration <= 0.0:
             return
@@ -452,7 +601,6 @@ class MainWindow(QMainWindow):
         self._playback_start_timeline_time = self.current_playback_time
         self.player_view.set_playing_state(True)
 
-        # Start audio playback stream
         self._start_audio()
 
         if not self.playback_timer.isActive():
@@ -460,7 +608,6 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def pause(self) -> None:
-        """Pauses playback and audio."""
         self._is_playing = False
         if self.playback_timer.isActive():
             self.playback_timer.stop()
@@ -469,13 +616,11 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def rewind(self) -> None:
-        """Rewinds playback to 0.0s."""
         self.pause()
         self.current_playback_time = 0.0
         self._render_current_frame(force=True)
 
     def step_frame(self, frame_delta: int) -> None:
-        """Steps forward or backward by the specified number of frames."""
         self.pause()
         frame_time = 1.0 / max(1.0, self.fps)
         new_time = max(0.0, self.current_playback_time + (frame_delta * frame_time))
@@ -486,8 +631,14 @@ class MainWindow(QMainWindow):
         self._render_current_frame(force=True)
 
     @pyqtSlot()
+    def _open_export_dialog(self) -> None:
+        """Opens the video export settings modal dialog."""
+        self.pause()
+        dlg = ExportDialog(self.project, self)
+        dlg.exec()
+
+    @pyqtSlot()
     def _on_playback_tick(self) -> None:
-        """Fired ~60 times per second for smooth playhead motion and wall-clock sync."""
         if not self._is_playing:
             return
 
@@ -504,29 +655,22 @@ class MainWindow(QMainWindow):
         self._render_current_frame()
 
     def _render_current_frame(self, force: bool = False) -> None:
-        """
-        Extracts composite frame and updates PlayerView and Timeline playhead.
-        Quantizes render calls to avoid redundant frame redraws while maintaining 60 FPS playhead.
-        """
-        # Smoothly advance the visual playhead at 60 FPS
         self.timeline_view.set_playhead_time(self.current_playback_time)
 
-        # Check if frame index changed (at project FPS)
         quant_time = int(round(self.current_playback_time * self.fps))
         if force or quant_time != self._last_rendered_quant_time:
             self._last_rendered_quant_time = quant_time
 
-            # Update Frame / Timecode / Status Header
             status = self.preview_engine.get_playback_status(self.project, self.current_playback_time)
             self.player_view.update_status(status)
 
-            # Update Video Frame Preview (Top-down layered)
             frame = self.preview_engine.get_project_frame(self.project, self.current_playback_time)
             self.player_view.update_frame(frame)
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
-        """Global keyboard shortcuts for video playback and clip deletion."""
         key = event.key()
+        modifiers = event.modifiers()
+
         if key == Qt.Key.Key_Space:
             self.toggle_play()
             event.accept()
@@ -542,11 +686,22 @@ class MainWindow(QMainWindow):
         elif key in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
             self.delete_selected_clip()
             event.accept()
+        elif key == Qt.Key.Key_V and not (modifiers & Qt.KeyboardModifier.ControlModifier):
+            self.timeline_view.set_active_tool("select")
+            event.accept()
+        elif key == Qt.Key.Key_C and not (modifiers & Qt.KeyboardModifier.ControlModifier):
+            self.timeline_view.set_active_tool("razor")
+            event.accept()
+        elif (modifiers & Qt.KeyboardModifier.ControlModifier) and key == Qt.Key.Key_B:
+            self._on_split_at_playhead()
+            event.accept()
+        elif (modifiers & Qt.KeyboardModifier.ControlModifier) and key == Qt.Key.Key_E:
+            self._open_export_dialog()
+            event.accept()
         else:
             super().keyPressEvent(event)
 
     def closeEvent(self, event) -> None:
-        """Clean up background threads, audio sink, timers, and engine resources."""
         self.playback_timer.stop()
         self._stop_audio()
         for worker in list(self._active_workers):

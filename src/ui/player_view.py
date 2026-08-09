@@ -15,10 +15,15 @@ from PyQt6.QtWidgets import (
 
 
 class PlayerView(QWidget):
-    """
-    The video preview window, metadata frame status bar, and playback & audio controls.
-    Adheres strictly to docs/ai_agents/ui_developer.md:
-    Event-driven signals, no blocking processing, clean modern dark-mode aesthetic.
+    """The video preview screen, status metadata badge bar, and playback & audio control toolbar.
+
+    Layout Structure:
+    - QVBoxLayout (Root Layout)
+      - QFrame#PreviewScreenContainer (AspectRatio-preserving QLabel preview screen)
+      - QFrame#InfoBar (Active video title, master frame counter, timecode, and FPS badge)
+      - QHBoxLayout#ControlsBar (Rewind, Step Back, Play/Pause toggle, Step Forward, Volume Slider, Mute Button)
+
+    Strictly event-driven: emits custom PyQt signals upon user interaction and does not perform video decoding.
     """
 
     play_requested = pyqtSignal()
