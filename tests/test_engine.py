@@ -68,31 +68,83 @@ def test_frame_extraction():
     print(f"[4/5] Testing gap at global_time={gap_time}s -> black frame shape: {black_frame.shape}, mean: {black_frame.mean():.2f}")
     assert black_frame.mean() == 0.0, "Expected empty black frame when no clip exists at global_time"
 
-    # 5. Display the extracted project frame
-    print("[5/5] Popping open preview window...")
-    displayed = False
+    # 5. Test Playback Status metadata
+    print("[5/6] Testing get_playback_status...")
+    status = engine.get_playback_status(project, global_time=7.0)
+    print(f"      Status at 7.0s: {status}")
+    assert status["has_active_clip"] is True
+    assert status["clip_name"] == "Test Clip Segment"
+    assert status["clip_frame"] == 61  # 2.0s * 30fps + 1
+    assert status["current_frame"] == 211  # 7.0s * 30fps + 1
+    assert "00:00:07:" in status["timecode"]
 
-    try:
-        cv2 = importlib.import_module("cv2")
-        bgr_frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-        window_name = f"Project Frame at {global_time}s (Press any key to close)"
-        cv2.imshow(window_name, bgr_frame)
-        print("      Opened via OpenCV (cv2). Press any key in the window to exit.")
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
-        displayed = True
-    except (ImportError, ModuleNotFoundError):
-        pass
+    gap_status = engine.get_playback_status(project, global_time=1.0)
+    assert gap_status["has_active_clip"] is False
 
-    if not displayed:
-        image = Image.fromarray(frame)
-        image.show(title=f"Project Frame at {global_time}s")
-        print("      Opened via Pillow (PIL). Image viewer launched.")
+    # 6. Test Filmstrip Thumbnail Extraction
+    print("[6/8] Testing extract_clip_thumbnails...")
+    thumbs = engine.extract_clip_thumbnails(video_path, source_start=0.0, duration=10.0, count=5, thumb_height=36)
+    print(f"      Extracted {len(thumbs)} thumbnails. Shapes: {[t.shape for t in thumbs]}")
+    assert len(thumbs) == 5
+    assert thumbs[0].shape[0] == 36
+
+    # 7. Test Top-Down Video Layering (Video 2 > Video 1)
+    print("[7/8] Testing Top-Down Video Layering (Video 2 > Video 1)...")
+    video_track2 = project.add_track(name="Video 2", track_type="video")
+    clip_v2 = Clip(
+        file_path=video_path,
+        name="Overlay Clip on V2",
+        source_start=0.0,
+        source_end=2.0,
+        timeline_position=6.0,  # Overlaps with Video 1 from 6.0s to 8.0s
+    )
+    video_track2.clips.append(clip_v2)
+
+    # At 6.5s: Video 2 is active -> status must show Video 2 clip!
+    status_at_6_5 = engine.get_playback_status(project, global_time=6.5)
+    assert status_at_6_5["clip_name"] == "Overlay Clip on V2"
+    assert status_at_6_5["track_name"] == "Video 2"
+    print("      Verified: Video 2 takes visual precedence over Video 1 during overlap (6.5s)")
+
+    # At 9.0s: Video 2 is finished, but Video 1 is still active -> falls through to Video 1!
+    status_at_9_0 = engine.get_playback_status(project, global_time=9.0)
+    assert status_at_9_0["clip_name"] == "Test Clip Segment"
+    assert status_at_9_0["track_name"] == "Video 1"
+    print("      Verified: Video 1 shows through during gaps in Video 2 (9.0s)")
+
+    # 8. Test Multi-Track Audio PCM Extraction & Mixing
+    print("[8/8] Testing Multi-Track Audio Mixing...")
+    audio_track = project.add_track(name="Audio 1", track_type="audio")
+    audio_clip = Clip(
+        file_path=video_path,
+        name="Background Music",
+        source_start=0.0,
+        source_end=5.0,
+        timeline_position=5.0,
+    )
+    audio_track.clips.append(audio_clip)
+
+    pcm_bytes = engine.get_project_audio_pcm(project, start_time=5.0, duration=3.0, sample_rate=44100)
+    expected_bytes = 3 * 44100 * 2 * 2  # 3s * 44100Hz * 2 channels * 2 bytes/sample
+    print(f"      Mixed PCM bytes length: {len(pcm_bytes)} (expected: {expected_bytes})")
+    assert len(pcm_bytes) == expected_bytes
+    # 9. Test Exact Clip End Boundary Inclusiveness
+    print("[9/9] Testing Exact Clip End Boundary (15.0s)...")
+    end_status = engine.get_playback_status(project, global_time=15.0)
+    assert end_status["has_active_clip"] is True
+    assert end_status["clip_name"] == "Test Clip Segment"
+    end_frame = engine.get_project_frame(project, global_time=15.0)
+    assert end_frame.shape == (1080, 1920, 3)
+    assert end_frame.mean() > 0.0
+    print("      Verified: Clip remains active and renders last frame at exact end boundary (15.0s) without black screen glitch.")
 
     # Clean up engine resources
     engine.close()
-    print("Test finished successfully.")
+    print("\n[SUCCESS] Engine test suite passed completely!")
+
 
 
 if __name__ == "__main__":
     test_frame_extraction()
+
+

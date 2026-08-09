@@ -33,7 +33,16 @@ def run_test():
     # 5. Output the calculated duration and the final JSON
     print(f"Clip '{drone_clip.name}' duration is {drone_clip.duration} seconds.\n")
     print("--- PROJECT JSON EXPORT ---")
-    print(my_project.to_json())
+    json_str = my_project.to_json()
+    print(json_str)
+
+    # 6. Verify round-trip deserialization
+    loaded_project = Project.from_json(json_str)
+    assert loaded_project.name == my_project.name
+    assert len(loaded_project.tracks) == 2
+    assert len(loaded_project.tracks[0].clips) == 1
+    assert loaded_project.tracks[0].clips[0].name == "Opening Sweep"
+    print("\n[SUCCESS] Project JSON round-trip deserialization verified!")
 
 
 if __name__ == "__main__":
