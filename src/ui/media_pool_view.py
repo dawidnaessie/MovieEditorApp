@@ -90,52 +90,53 @@ class MediaPoolView(QWidget):
         super().__init__()
         self.setStyleSheet("""
             QWidget {
-                background-color: #1c1c1f;
-                color: #e4e4e7;
+                background-color: #120e24;
+                color: #f5f3ff;
                 font-family: 'Segoe UI', sans-serif;
             }
             QLabel#PoolTitle {
                 font-weight: bold;
                 font-size: 13px;
-                color: #f4f4f5;
+                color: #f5f3ff;
                 padding-bottom: 2px;
             }
             QPushButton#BtnImport {
-                background-color: #2563eb;
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #6366f1, stop:1 #8b5cf6);
                 color: #ffffff;
-                border: none;
+                border: 1px solid #a78bfa;
                 border-radius: 5px;
                 padding: 7px 12px;
                 font-weight: bold;
                 font-size: 12px;
             }
             QPushButton#BtnImport:hover {
-                background-color: #3b82f6;
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #818cf8, stop:1 #a78bfa);
+                border-color: #c4b5fd;
             }
             QPushButton#BtnImport:pressed {
-                background-color: #1d4ed8;
+                background-color: #4338ca;
             }
             QListWidget {
-                background-color: #141416;
-                border: 1px solid #27272a;
+                background-color: #0d0a1a;
+                border: 1px solid #2d2159;
                 border-radius: 5px;
                 padding: 4px;
-                color: #f4f4f5;
+                color: #f5f3ff;
             }
             QListWidget::item {
                 padding: 8px;
                 border-radius: 4px;
                 margin-bottom: 2px;
-                background-color: #1f1f23;
-                border: 1px solid #27272a;
+                background-color: #1a1436;
+                border: 1px solid #2d2159;
             }
             QListWidget::item:hover {
-                background-color: #27272a;
-                border-color: #388bfd;
+                background-color: #261e4d;
+                border-color: #8b5cf6;
             }
             QListWidget::item:selected {
-                background-color: #1e3a5f;
-                border-color: #58a6ff;
+                background-color: #3b1d6b;
+                border: 1px solid #d946ef;
                 color: #ffffff;
             }
         """)

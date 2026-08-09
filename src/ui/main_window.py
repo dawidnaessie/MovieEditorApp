@@ -112,30 +112,34 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("AI Movie Editor - CapCut Studio")
+        self.setWindowTitle("AI Movie Editor - Studio")
         self.setStyleSheet("""
             QMainWindow {
-                background-color: #141416;
-                color: #f4f4f5;
+                background-color: #0c0a17;
+                color: #f5f3ff;
                 font-family: 'Segoe UI', sans-serif;
             }
             QSplitter::handle {
-                background-color: #27272a;
+                background-color: #2b2154;
+            }
+            QSplitter::handle:hover {
+                background-color: #7c3aed;
             }
             QPushButton.export-btn {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0284c7, stop:1 #00e5ff);
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #7c3aed, stop:0.5 #9333ea, stop:1 #d946ef);
                 color: #ffffff;
-                border: none;
+                border: 1px solid #c084fc;
                 border-radius: 5px;
-                padding: 6px 16px;
+                padding: 6px 18px;
                 font-size: 12px;
                 font-weight: bold;
             }
             QPushButton.export-btn:hover {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0ea5e9, stop:1 #38bdf8);
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #8b5cf6, stop:0.5 #a855f7, stop:1 #e879f9);
+                border-color: #f0abfc;
             }
             QPushButton.export-btn:pressed {
-                background-color: #0369a1;
+                background-color: #581c87;
             }
         """)
 
@@ -192,21 +196,27 @@ class MainWindow(QMainWindow):
         main_layout.setContentsMargins(6, 6, 6, 6)
         main_layout.setSpacing(6)
 
-        # Top Header Bar (CapCut-inspired)
+        # Top Header Bar (Futuristic Violet Theme)
         header_bar = QWidget()
-        header_bar.setFixedHeight(36)
-        header_bar.setStyleSheet("background-color: #18181b; border-bottom: 1px solid #27272a; border-radius: 4px;")
+        header_bar.setFixedHeight(38)
+        header_bar.setStyleSheet("""
+            QWidget {
+                background-color: #120e24;
+                border: 1px solid #2d2159;
+                border-radius: 6px;
+            }
+        """)
         h_layout = QHBoxLayout(header_bar)
-        h_layout.setContentsMargins(10, 2, 10, 2)
+        h_layout.setContentsMargins(12, 2, 12, 2)
         h_layout.setSpacing(10)
 
         lbl_app = QLabel("🎬  MovieEditor Studio")
         lbl_app.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
-        lbl_app.setStyleSheet("color: #00e5ff;")
+        lbl_app.setStyleSheet("color: #c084fc; background: transparent; border: none;")
         h_layout.addWidget(lbl_app)
 
         self.lbl_proj_info = QLabel("• 1080p 30fps")
-        self.lbl_proj_info.setStyleSheet("color: #71717a; font-size: 11px;")
+        self.lbl_proj_info.setStyleSheet("color: #a78bfa; font-size: 11px; background: transparent; border: none;")
         h_layout.addWidget(self.lbl_proj_info)
 
         h_layout.addStretch()
@@ -697,6 +707,15 @@ class MainWindow(QMainWindow):
             event.accept()
         elif (modifiers & Qt.KeyboardModifier.ControlModifier) and key == Qt.Key.Key_E:
             self._open_export_dialog()
+            event.accept()
+        elif (modifiers & Qt.KeyboardModifier.ControlModifier) and key in (Qt.Key.Key_Plus, Qt.Key.Key_Equal):
+            self.timeline_view.zoom_in()
+            event.accept()
+        elif (modifiers & Qt.KeyboardModifier.ControlModifier) and key in (Qt.Key.Key_Minus, Qt.Key.Key_Underscore):
+            self.timeline_view.zoom_out()
+            event.accept()
+        elif ((modifiers & Qt.KeyboardModifier.ControlModifier) and key == Qt.Key.Key_0) or (key == Qt.Key.Key_Z and (modifiers & Qt.KeyboardModifier.ShiftModifier)):
+            self.timeline_view.zoom_fit_to_screen()
             event.accept()
         else:
             super().keyPressEvent(event)

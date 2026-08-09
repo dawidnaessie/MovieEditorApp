@@ -46,64 +46,66 @@ class ExportDialog(QDialog):
 
         self.setStyleSheet("""
             QDialog {
-                background-color: #18181b;
-                color: #f4f4f5;
+                background-color: #120e24;
+                color: #f5f3ff;
                 font-family: 'Segoe UI', sans-serif;
             }
             QLabel {
-                color: #e4e4e7;
+                color: #e9d5ff;
                 font-size: 12px;
             }
             QLabel#DialogTitle {
                 font-size: 16px;
                 font-weight: bold;
-                color: #ffffff;
+                color: #f5f3ff;
             }
             QComboBox, QLineEdit {
-                background-color: #212124;
-                color: #f4f4f5;
-                border: 1px solid #333338;
+                background-color: #1a1436;
+                color: #f5f3ff;
+                border: 1px solid #36296b;
                 border-radius: 5px;
                 padding: 6px 10px;
                 font-size: 12px;
             }
             QComboBox:hover, QLineEdit:hover {
-                border-color: #0284c7;
+                border-color: #8b5cf6;
             }
             QComboBox::drop-down {
                 border: none;
                 padding-right: 8px;
             }
             QPushButton.primary-btn {
-                background-color: #0284c7;
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #7c3aed, stop:0.5 #9333ea, stop:1 #d946ef);
                 color: #ffffff;
-                border: none;
+                border: 1px solid #c084fc;
                 border-radius: 5px;
                 padding: 8px 18px;
                 font-weight: bold;
                 font-size: 13px;
             }
             QPushButton.primary-btn:hover {
-                background-color: #0ea5e9;
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #8b5cf6, stop:0.5 #a855f7, stop:1 #e879f9);
+                border-color: #f0abfc;
             }
             QPushButton.primary-btn:pressed {
-                background-color: #0369a1;
+                background-color: #581c87;
             }
             QPushButton.secondary-btn {
-                background-color: #27272a;
-                color: #d4d4d8;
-                border: 1px solid #3f3f46;
+                background-color: #1a1436;
+                color: #c4b5fd;
+                border: 1px solid #36296b;
                 border-radius: 5px;
                 padding: 8px 14px;
                 font-size: 12px;
             }
             QPushButton.secondary-btn:hover {
-                background-color: #3f3f46;
+                background-color: #261e4d;
+                border-color: #8b5cf6;
                 color: #ffffff;
             }
             QProgressBar {
-                background-color: #212124;
-                border: 1px solid #333338;
+                background-color: #1a1436;
+                border: 1px solid #36296b;
                 border-radius: 5px;
                 text-align: center;
                 color: #ffffff;
@@ -111,7 +113,7 @@ class ExportDialog(QDialog):
                 height: 16px;
             }
             QProgressBar::chunk {
-                background-color: #0284c7;
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #7c3aed, stop:1 #d946ef);
                 border-radius: 4px;
             }
         """)

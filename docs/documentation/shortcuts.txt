@@ -1,0 +1,12 @@
+Space	Play / Pause playback
+V	Pointer / Select Tool
+C	Razor / Scissors Tool
+Ctrl + B	Split Clip at Current Playhead
+Ctrl + E	Open Video Export Dialog
+Ctrl + Scroll / Pinch	Smooth Timeline Zoom In / Out
+Ctrl + Plus / Equal	Zoom In Timeline
+Ctrl + Minus	Zoom Out Timeline
+Ctrl + 0 / Shift + Z	Fit Timeline to Viewport
+Delete / Backspace	Delete Selected Clip
+Left / Right Arrow	Step Backward / Forward 1 Frame
+Home	Rewind Timeline to 0.0s

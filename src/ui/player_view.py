@@ -44,58 +44,58 @@ class PlayerView(QWidget):
 
         self.setStyleSheet("""
             QWidget {
-                background-color: #1a1a1a;
-                color: #e0e0e0;
+                background-color: #120e24;
+                color: #f5f3ff;
                 font-family: 'Segoe UI', sans-serif;
             }
             QFrame#PreviewScreenContainer {
-                background-color: #0c0c0c;
-                border: 1px solid #2d2d2d;
+                background-color: #080612;
+                border: 1px solid #2d2159;
                 border-radius: 6px;
             }
             QLabel#ScreenLabel {
                 background-color: transparent;
-                color: #888888;
+                color: #7c6f9f;
                 font-size: 16px;
             }
             QFrame#InfoBar {
-                background-color: #222224;
-                border: 1px solid #333333;
+                background-color: #1a1436;
+                border: 1px solid #36296b;
                 border-radius: 5px;
                 padding: 4px 8px;
             }
             QLabel#VideoTitleLabel {
-                color: #58a6ff;
+                color: #c084fc;
                 font-size: 13px;
                 font-weight: bold;
             }
             QLabel#FrameCounterBadge {
-                background-color: #1f385c;
-                color: #79c0ff;
+                background-color: #2b1f54;
+                color: #a78bfa;
                 font-size: 12px;
                 font-weight: bold;
                 padding: 2px 6px;
                 border-radius: 3px;
-                border: 1px solid #388bfd;
+                border: 1px solid #6d28d9;
             }
             QLabel#TimecodeBadge {
-                background-color: #2d2d30;
-                color: #56d364;
+                background-color: #16102e;
+                color: #00f5ff;
                 font-family: 'Consolas', monospace;
                 font-size: 13px;
                 font-weight: bold;
                 padding: 2px 8px;
                 border-radius: 3px;
-                border: 1px solid #3e3e42;
+                border: 1px solid #7c3aed;
             }
             QLabel#FormatBadge {
-                color: #8b949e;
+                color: #9d8ec2;
                 font-size: 11px;
             }
             QPushButton.control-btn {
-                background-color: #2d2d30;
-                color: #e0e0e0;
-                border: 1px solid #3e3e42;
+                background-color: #201842;
+                color: #e9d5ff;
+                border: 1px solid #3b2d70;
                 border-radius: 4px;
                 padding: 5px 12px;
                 font-size: 12px;
@@ -103,44 +103,45 @@ class PlayerView(QWidget):
                 min-width: 32px;
             }
             QPushButton.control-btn:hover {
-                background-color: #3e3e46;
-                border-color: #007acc;
+                background-color: #312361;
+                border-color: #8b5cf6;
                 color: #ffffff;
             }
             QPushButton.control-btn:pressed {
-                background-color: #005999;
+                background-color: #16102e;
             }
             QPushButton#BtnPlayToggle {
-                background-color: #0e639c;
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #7c3aed, stop:1 #9333ea);
                 color: #ffffff;
-                border-color: #1177bb;
+                border: 1px solid #a855f7;
                 padding: 5px 18px;
                 font-weight: bold;
             }
             QPushButton#BtnPlayToggle:hover {
-                background-color: #1177bb;
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #8b5cf6, stop:1 #a855f7);
+                border-color: #d946ef;
             }
             QPushButton#BtnPlayToggle:pressed {
-                background-color: #094771;
+                background-color: #581c87;
             }
             QSlider::groove:horizontal {
-                background: #2d2d30;
+                background: #201842;
                 height: 4px;
                 border-radius: 2px;
             }
             QSlider::sub-page:horizontal {
-                background: #0e639c;
+                background: #8b5cf6;
                 border-radius: 2px;
             }
             QSlider::handle:horizontal {
-                background: #58a6ff;
+                background: #c084fc;
                 width: 12px;
                 margin-top: -4px;
                 margin-bottom: -4px;
                 border-radius: 6px;
             }
             QSlider::handle:horizontal:hover {
-                background: #ffffff;
+                background: #f0abfc;
             }
         """)
 

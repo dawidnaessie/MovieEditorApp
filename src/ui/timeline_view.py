@@ -1,11 +1,11 @@
-"""Production Multi-Track Timeline Canvas and View conforming to Phase 2 guidelines.
+"""Production Multi-Track Timeline Canvas and View with Dynamic Zoom and Polished Track Headers.
 
 Features:
-- Integrated ToolbarView above the timeline (Select [V], Razor [C], Split at playhead [Ctrl+B], Delete [Del]).
-- Active tool states ('select' vs 'razor') with dynamic cursor switching.
-- Razor tool click-splitting on ClipWidget emitting exact cut timestamps.
-- Interactive edge trimming (hovering within 8px of left/right clip edges with SizeHorCursor and dragging).
-- Asynchronous thumbnail rendering and smooth playhead synchronization.
+- Track headers rendered on solid QFrames with explicit badges, preventing text clipping.
+- Dynamic timeline zooming (Ctrl + Wheel / Touchpad pinch, toolbar slider, zoom in/out, fit to screen).
+- Adaptive ruler tick intervals based on zoom level (seconds, minutes, or frame divisions).
+- Razor scissors cutting tool and interactive edge trimming.
+- Non-blocking filmstrip thumbnail caching and 60 FPS playhead synchronization.
 """
 
 import math
@@ -31,6 +31,7 @@ from PyQt6.QtGui import (
     QPixmap,
     QPolygon,
     QResizeEvent,
+    QWheelEvent,
 )
 from PyQt6.QtWidgets import (
     QFrame,
@@ -45,24 +46,32 @@ from PyQt6.QtWidgets import (
 
 from .toolbar_view import ToolbarView
 
-# Standard time-scaling constant: 25 pixels per second
-PIXELS_PER_SECOND: float = 25.0
+# Standard timeline constants
+TRACK_HEADER_WIDTH: int = 130
+DEFAULT_PIXELS_PER_SECOND: float = 25.0
+MIN_PIXELS_PER_SECOND: float = 2.0
+MAX_PIXELS_PER_SECOND: float = 150.0
+PIXELS_PER_SECOND: float = DEFAULT_PIXELS_PER_SECOND
 DEFAULT_CLIP_DURATION: float = 10.0
 
 
-def time_to_pixel(seconds: float, header_width: int = 130, pixels_per_second: float = PIXELS_PER_SECOND) -> int:
+def time_to_pixel(
+    seconds: float,
+    header_width: int = TRACK_HEADER_WIDTH,
+    pixels_per_second: float = DEFAULT_PIXELS_PER_SECOND,
+) -> int:
     """Converts a timeline timestamp in seconds into a local canvas pixel X coordinate."""
     return int(header_width + (max(0.0, float(seconds)) * pixels_per_second))
 
 
 def pixel_to_time(
     x: int,
-    header_width: int = 130,
-    pixels_per_second: float = PIXELS_PER_SECOND,
+    header_width: int = TRACK_HEADER_WIDTH,
+    pixels_per_second: float = DEFAULT_PIXELS_PER_SECOND,
     max_duration: float = 0.0,
 ) -> float:
     """Converts a local canvas pixel X coordinate into timeline seconds clamped to [0.0, max_duration]."""
-    raw_seconds = max(0.0, (float(x) - float(header_width)) / max(1.0, pixels_per_second))
+    raw_seconds = max(0.0, (float(x) - float(header_width)) / max(0.1, pixels_per_second))
     if max_duration > 0:
         return min(raw_seconds, float(max_duration))
     return raw_seconds
@@ -70,8 +79,8 @@ def pixel_to_time(
 
 def calculate_clip_pixel_width(
     duration: float,
-    pixels_per_second: float = PIXELS_PER_SECOND,
-    min_width: int = 40,
+    pixels_per_second: float = DEFAULT_PIXELS_PER_SECOND,
+    min_width: int = 20,
 ) -> int:
     """Calculates the visual pixel width for a clip given its duration in seconds."""
     return max(min_width, int(max(0.0, float(duration)) * pixels_per_second))
@@ -94,7 +103,7 @@ class ClipWidget(QWidget):
         timeline_position: float = 0.0,
         duration: float = DEFAULT_CLIP_DURATION,
         track_index: int = 0,
-        pixels_per_second: float = PIXELS_PER_SECOND,
+        pixels_per_second: float = DEFAULT_PIXELS_PER_SECOND,
         clip_id: str = "",
         parent: QWidget | None = None,
         x: int = 0,
@@ -130,11 +139,12 @@ class ClipWidget(QWidget):
 
         self._update_style()
 
-        # Layout
+        # Main Layout
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 2, 4, 2)
         layout.setSpacing(1)
 
+        # Header Bar
         header_layout = QHBoxLayout()
         header_layout.setContentsMargins(2, 1, 2, 1)
         header_layout.setSpacing(4)
@@ -146,7 +156,7 @@ class ClipWidget(QWidget):
 
         self.lbl_title = QLabel(f"🎞️ {elided_title}")
         self.lbl_title.setFont(font)
-        self.lbl_title.setStyleSheet("color: #ffffff; font-weight: bold; background: transparent; border: none;")
+        self.lbl_title.setStyleSheet("color: #f5f3ff; font-weight: bold; background: transparent; border: none;")
         self.lbl_title.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         header_layout.addWidget(self.lbl_title)
 
@@ -154,7 +164,7 @@ class ClipWidget(QWidget):
 
         self.lbl_dur = QLabel(f"{self.duration:.1f}s")
         self.lbl_dur.setFont(QFont("Segoe UI", 7))
-        self.lbl_dur.setStyleSheet("color: #a5d6ff; background: rgba(0,0,0,0.3); border-radius: 2px; padding: 1px 3px;")
+        self.lbl_dur.setStyleSheet("color: #e9d5ff; background: rgba(18, 14, 36, 0.6); border: 1px solid #6d28d9; border-radius: 2px; padding: 1px 3px;")
         self.lbl_dur.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         header_layout.addWidget(self.lbl_dur)
 
@@ -163,6 +173,22 @@ class ClipWidget(QWidget):
 
         self.setToolTip(f"🎬 {clip_name}\nTrack: {track_index + 1}\nDuration: {self.duration:.2f}s\n[Click to select, Razor (C) to cut, Drag edge to trim]")
         self.show()
+
+    def update_zoom(self, pixels_per_second: float) -> None:
+        """Recalculates X position and pixel width when timeline zoom level changes."""
+        self.pixels_per_second = max(MIN_PIXELS_PER_SECOND, pixels_per_second)
+        new_x = int(self.timeline_position * self.pixels_per_second)
+        new_w = calculate_clip_pixel_width(self.duration, self.pixels_per_second)
+        self.setGeometry(new_x, self.y(), new_w, self.height())
+
+        # Update elided title text
+        font = QFont("Segoe UI", 8, QFont.Weight.Bold)
+        metrics = QFontMetrics(font)
+        available_width = max(10, new_w - 40)
+        elided_title = metrics.elidedText(self.clip_name, Qt.TextElideMode.ElideRight, available_width)
+        self.lbl_title.setText(f"🎞️ {elided_title}" if new_w > 50 else elided_title)
+        self.lbl_dur.setVisible(new_w > 45)
+        self.update()
 
     def set_active_tool(self, tool_name: str) -> None:
         """Updates the active tool mode for this clip widget."""
@@ -177,16 +203,16 @@ class ClipWidget(QWidget):
         if self.is_selected:
             self.setStyleSheet("""
                 QWidget#ClipWidget {
-                    background-color: #264a78;
-                    border: 2px solid #00e5ff;
+                    background-color: #3d216d;
+                    border: 2px solid #d946ef;
                     border-radius: 5px;
                 }
             """)
         else:
             self.setStyleSheet("""
                 QWidget#ClipWidget {
-                    background-color: #1e3a5f;
-                    border: 1px solid #0284c7;
+                    background-color: #281d52;
+                    border: 1px solid #7c3aed;
                     border-radius: 5px;
                 }
             """)
@@ -265,7 +291,7 @@ class ClipWidget(QWidget):
         # 1. Active Edge Dragging
         if self._trim_mode == "right":
             dx = event.globalPosition().x() - self._drag_start_x
-            new_w = max(25, int(self._orig_w + dx))
+            new_w = max(15, int(self._orig_w + dx))
             new_dur = max(0.2, new_w / self.pixels_per_second)
             self.resize(new_w, self.height())
             self.lbl_dur.setText(f"{new_dur:.1f}s")
@@ -273,7 +299,7 @@ class ClipWidget(QWidget):
             return
         elif self._trim_mode == "left":
             dx = event.globalPosition().x() - self._drag_start_x
-            max_dx = self._orig_w - 25
+            max_dx = self._orig_w - 15
             clamped_dx = max(-self._orig_x, min(dx, max_dx))
             new_x = int(self._orig_x + clamped_dx)
             new_w = int(self._orig_w - clamped_dx)
@@ -330,14 +356,14 @@ class ClipWidget(QWidget):
         menu = QMenu(self)
         menu.setStyleSheet("""
             QMenu {
-                background-color: #222225;
-                color: #e0e0e0;
-                border: 1px solid #38383c;
+                background-color: #1a1436;
+                color: #f5f3ff;
+                border: 1px solid #3b2d70;
                 border-radius: 4px;
                 padding: 4px;
             }
             QMenu::item:selected {
-                background-color: #0284c7;
+                background-color: #7c3aed;
                 color: #ffffff;
             }
         """)
@@ -353,7 +379,7 @@ class ClipWidget(QWidget):
         menu.exec(event.globalPos())
 
     def paintEvent(self, event) -> None:
-        """Paints the background and the horizontal thumbnail filmstrip frames under the title."""
+        """Paints the background and horizontal thumbnail filmstrip frames."""
         super().paintEvent(event)
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
@@ -364,11 +390,11 @@ class ClipWidget(QWidget):
         filmstrip_h = max(10, height - filmstrip_y - 2)
 
         filmstrip_rect = QRect(2, filmstrip_y, width - 4, filmstrip_h)
-        painter.fillRect(filmstrip_rect, QColor("#121820"))
+        painter.fillRect(filmstrip_rect, QColor("#0f0b21"))
 
-        if self._thumbnails:
+        if self._thumbnails and width > 30:
             total_thumbs = len(self._thumbnails)
-            thumb_w = max(24, int(filmstrip_h * (16 / 9)))
+            thumb_w = max(20, int(filmstrip_h * (16 / 9)))
             needed_tiles = max(1, math.ceil((width - 4) / thumb_w))
 
             x_offset = 2
@@ -387,11 +413,12 @@ class ClipWidget(QWidget):
                 painter.drawLine(x_offset + draw_w, filmstrip_y, x_offset + draw_w, filmstrip_y + filmstrip_h)
                 x_offset += thumb_w
         else:
-            painter.setPen(QPen(QColor("#2d3748"), 1, Qt.PenStyle.DashLine))
+            painter.setPen(QPen(QColor("#3b2d70"), 1, Qt.PenStyle.DashLine))
             painter.drawRect(filmstrip_rect.adjusted(1, 1, -1, -1))
-            painter.setFont(QFont("Segoe UI", 7))
-            painter.setPen(QColor("#6e7681"))
-            painter.drawText(filmstrip_rect, Qt.AlignmentFlag.AlignCenter, "Loading Frames...")
+            if width > 60:
+                painter.setFont(QFont("Segoe UI", 7))
+                painter.setPen(QColor("#a78bfa"))
+                painter.drawText(filmstrip_rect, Qt.AlignmentFlag.AlignCenter, "Loading Frames...")
 
 
 class TrackLaneWidget(QWidget):
@@ -405,7 +432,7 @@ class TrackLaneWidget(QWidget):
     split_requested = pyqtSignal(str, float)
     trim_requested = pyqtSignal(object, float, bool)
 
-    def __init__(self, track_index: int, pixels_per_second: float = PIXELS_PER_SECOND):
+    def __init__(self, track_index: int, pixels_per_second: float = DEFAULT_PIXELS_PER_SECOND):
         super().__init__()
         self.track_index = track_index
         self.pixels_per_second = pixels_per_second
@@ -414,10 +441,16 @@ class TrackLaneWidget(QWidget):
         self.clip_widgets: list[ClipWidget] = []
         self.setStyleSheet("""
             TrackLaneWidget {
-                background-color: #212124;
-                border-bottom: 1px solid #2d2d30;
+                background-color: #191433;
+                border-bottom: 1px solid #271f4d;
             }
         """)
+
+    def set_zoom(self, pixels_per_second: float) -> None:
+        """Updates zoom level on this lane and all contained clip widgets."""
+        self.pixels_per_second = pixels_per_second
+        for cw in self.clip_widgets:
+            cw.update_zoom(pixels_per_second)
 
     def set_active_tool(self, tool_name: str) -> None:
         """Updates active tool mode on all child clip widgets."""
@@ -516,8 +549,71 @@ class TrackLaneWidget(QWidget):
             event.acceptProposedAction()
 
 
+class TrackHeaderWidget(QFrame):
+    """Solid, non-transparent track header frame preventing any clipping or background bleeding."""
+
+    def __init__(self, track_name: str, track_index: int, parent: Optional[QWidget] = None):
+        super().__init__(parent)
+        self.setFixedWidth(TRACK_HEADER_WIDTH)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setObjectName("TrackHeaderWidget")
+
+        is_audio = "audio" in track_name.lower()
+        badge_bg = "#26164d" if not is_audio else "#35143a"
+        badge_color = "#c084fc" if not is_audio else "#f472b6"
+        badge_border = "#6d28d9" if not is_audio else "#9d174d"
+        icon = "🔊" if is_audio else "🎬"
+
+        self.setStyleSheet(f"""
+            QFrame#TrackHeaderWidget {{
+                background-color: #140f29;
+                border-right: 2px solid #3b2d70;
+                border-bottom: 1px solid #271f4d;
+            }}
+            QFrame.badge-pill {{
+                background-color: {badge_bg};
+                border: 1px solid {badge_border};
+                border-radius: 4px;
+                padding: 3px 6px;
+            }}
+            QLabel.track-title {{
+                color: #f5f3ff;
+                font-weight: bold;
+                font-size: 11px;
+            }}
+            QLabel.track-tag {{
+                color: {badge_color};
+                font-size: 9px;
+                font-weight: 600;
+            }}
+        """)
+
+        h_layout = QHBoxLayout(self)
+        h_layout.setContentsMargins(8, 6, 8, 6)
+        h_layout.setSpacing(6)
+
+        # Track badge container
+        badge = QFrame()
+        badge.setProperty("class", "badge-pill")
+        b_layout = QHBoxLayout(badge)
+        b_layout.setContentsMargins(4, 2, 4, 2)
+        b_layout.setSpacing(4)
+
+        lbl_icon = QLabel(icon)
+        lbl_icon.setStyleSheet("font-size: 12px; background: transparent;")
+        b_layout.addWidget(lbl_icon)
+
+        lbl_name = QLabel(track_name)
+        lbl_name.setProperty("class", "track-title")
+        lbl_name.setStyleSheet("background: transparent;")
+        b_layout.addWidget(lbl_name)
+
+        h_layout.addWidget(badge)
+        h_layout.addStretch()
+
+
 class TrackStripWidget(QWidget):
-    """A single horizontal track strip containing the header and droppable lane."""
+    """A single horizontal track strip containing the solid header and droppable lane."""
 
     clip_dropped = pyqtSignal(str, int, float)
     seek_requested = pyqtSignal(float)
@@ -531,12 +627,13 @@ class TrackStripWidget(QWidget):
         self,
         track_name: str,
         track_index: int = 0,
-        pixels_per_second: float = PIXELS_PER_SECOND,
+        pixels_per_second: float = DEFAULT_PIXELS_PER_SECOND,
         height: int = 64,
     ):
         super().__init__()
         self.track_name = track_name
         self.track_index = track_index
+        self.pixels_per_second = pixels_per_second
         self.setFixedHeight(height)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
@@ -544,33 +641,11 @@ class TrackStripWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # Track Header
-        self.header = QWidget()
-        self.header.setFixedWidth(130)
-        self.header.setStyleSheet("""
-            QWidget {
-                background-color: #1a1a1d;
-                border-right: 1px solid #2d2d30;
-                border-bottom: 1px solid #2d2d30;
-            }
-            QLabel {
-                color: #e4e4e7;
-                font-weight: 600;
-                font-size: 11px;
-            }
-        """)
-        h_layout = QHBoxLayout(self.header)
-        h_layout.setContentsMargins(10, 0, 6, 0)
-        h_layout.setSpacing(6)
-
-        icon = "🔊" if "audio" in track_name.lower() else "🎬"
-        self.lbl_title = QLabel(f"{icon} {track_name}")
-        h_layout.addWidget(self.lbl_title)
-        h_layout.addStretch()
-
+        # 1. Solid Track Header (prevents any clipping or transparency issues)
+        self.header = TrackHeaderWidget(track_name=track_name, track_index=track_index, parent=self)
         layout.addWidget(self.header)
 
-        # Droppable Track Lane
+        # 2. Droppable Track Lane
         self.lane = TrackLaneWidget(track_index=track_index, pixels_per_second=pixels_per_second)
         self.lane.clip_dropped.connect(self.clip_dropped.emit)
         self.lane.clip_selected.connect(self.clip_selected.emit)
@@ -581,9 +656,14 @@ class TrackStripWidget(QWidget):
         self.lane.trim_requested.connect(self.trim_requested.emit)
         layout.addWidget(self.lane, stretch=1)
 
+    def set_zoom(self, pixels_per_second: float) -> None:
+        """Updates zoom level on child lane."""
+        self.pixels_per_second = pixels_per_second
+        self.lane.set_zoom(pixels_per_second)
+
 
 class PlayheadOverlay(QWidget):
-    """Glowing red vertical needle playhead overlay."""
+    """Glowing neon magenta/violet vertical needle playhead overlay."""
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -595,13 +675,14 @@ class PlayheadOverlay(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         height = self.height()
-        red_color = QColor("#00e5ff")  # CapCut Cyan glowing playhead
+        needle_color = QColor("#d946ef")
+        glow_color = QColor(217, 70, 239, 80)
         center_x = 9
 
-        painter.setPen(QPen(QColor(0, 229, 255, 70), 4))
+        painter.setPen(QPen(glow_color, 4))
         painter.drawLine(center_x, 0, center_x, height)
 
-        painter.setPen(QPen(red_color, 2))
+        painter.setPen(QPen(needle_color, 2))
         painter.drawLine(center_x, 0, center_x, height)
 
         head_width = 14
@@ -613,13 +694,13 @@ class PlayheadOverlay(QWidget):
             QPoint(center_x, head_height),
             QPoint(center_x - head_width // 2, head_height - 5),
         ])
-        painter.setBrush(QBrush(red_color))
-        painter.setPen(QPen(QColor("#ffffff"), 1))
+        painter.setBrush(QBrush(needle_color))
+        painter.setPen(QPen(QColor("#f0abfc"), 1))
         painter.drawPolygon(head_poly)
 
 
 class TimelineCanvas(QWidget):
-    """The interactive multi-track canvas with time ruler, clamped playhead, and dynamic width expansion."""
+    """The interactive multi-track canvas with time ruler, clamped playhead, and dynamic zooming."""
 
     seek_requested = pyqtSignal(float)
     scrub_started = pyqtSignal()
@@ -628,8 +709,13 @@ class TimelineCanvas(QWidget):
     clip_delete_requested = pyqtSignal(object)
     split_requested = pyqtSignal(str, float)
     trim_requested = pyqtSignal(object, float, bool)
+    zoom_changed = pyqtSignal(float)
 
-    def __init__(self, pixels_per_second: float = PIXELS_PER_SECOND, header_width: int = 130):
+    def __init__(
+        self,
+        pixels_per_second: float = DEFAULT_PIXELS_PER_SECOND,
+        header_width: int = TRACK_HEADER_WIDTH,
+    ):
         super().__init__()
         self.pixels_per_second = pixels_per_second
         self.header_width = header_width
@@ -654,7 +740,7 @@ class TimelineCanvas(QWidget):
         self.ruler_spacer.setFixedHeight(self.ruler_height)
         self.main_layout.addWidget(self.ruler_spacer)
 
-        # 2. Tracks
+        # 2. Tracks Container
         self.tracks_container = QWidget()
         self.tracks_layout = QVBoxLayout(self.tracks_container)
         self.tracks_layout.setContentsMargins(0, 0, 0, 0)
@@ -665,6 +751,26 @@ class TimelineCanvas(QWidget):
         # 3. Playhead Overlay
         self.playhead = PlayheadOverlay(self)
         self._reposition_playhead()
+
+    def set_zoom_level(self, pixels_per_second: float) -> None:
+        """Dynamically scales timeline zoom level and rescales all track clips."""
+        clamped_pps = max(MIN_PIXELS_PER_SECOND, min(MAX_PIXELS_PER_SECOND, float(pixels_per_second)))
+        if abs(clamped_pps - self.pixels_per_second) < 0.01:
+            return
+
+        self.pixels_per_second = clamped_pps
+
+        for strip in self.track_strips:
+            strip.set_zoom(self.pixels_per_second)
+
+        # Recalculate minimum canvas width
+        required_w = int(self.header_width + max(self.max_duration, 60.0) * self.pixels_per_second + 300)
+        self.setMinimumWidth(max(800, required_w))
+        self.updateGeometry()
+
+        self._reposition_playhead()
+        self.update()
+        self.zoom_changed.emit(self.pixels_per_second)
 
     def set_active_tool(self, tool_name: str) -> None:
         """Updates the active tool on canvas and all lanes."""
@@ -677,6 +783,9 @@ class TimelineCanvas(QWidget):
         self.max_duration = max(0.0, max_duration)
         if self.playhead_time > self.max_duration:
             self.playhead_time = self.max_duration
+        required_w = int(self.header_width + max(self.max_duration, 60.0) * self.pixels_per_second + 300)
+        self.setMinimumWidth(max(800, required_w))
+        self.updateGeometry()
         self._reposition_playhead()
         self.update()
 
@@ -776,7 +885,7 @@ class TimelineCanvas(QWidget):
 
     def x_to_time(self, x: int) -> float:
         clamped_x = max(self.header_width, min(x, self.width()))
-        raw_time = (clamped_x - self.header_width) / self.pixels_per_second
+        raw_time = (clamped_x - self.header_width) / max(0.1, self.pixels_per_second)
         if self.max_duration > 0:
             return max(0.0, min(raw_time, self.max_duration))
         return 0.0
@@ -803,6 +912,7 @@ class TimelineCanvas(QWidget):
         self._reposition_playhead()
 
     def paintEvent(self, event) -> None:
+        """Renders time ruler background and adaptive ticks matching the zoom level."""
         super().paintEvent(event)
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
@@ -810,32 +920,56 @@ class TimelineCanvas(QWidget):
         width = self.width()
         height = self.height()
 
-        painter.fillRect(0, 0, width, self.ruler_height, QColor("#141416"))
-        painter.fillRect(0, 0, self.header_width, self.ruler_height, QColor("#0f0f11"))
-        painter.setPen(QPen(QColor("#2d2d30"), 1))
+        # 1. Ruler Background (Deep Midnight Violet)
+        painter.fillRect(0, 0, width, self.ruler_height, QColor("#100d22"))
+        painter.fillRect(0, 0, self.header_width, self.ruler_height, QColor("#140f29"))
+        painter.setPen(QPen(QColor("#2e255e"), 1))
         painter.drawLine(0, self.ruler_height - 1, width, self.ruler_height - 1)
         painter.drawLine(self.header_width, 0, self.header_width, height)
 
+        # 2. Adaptive Tick Interval based on zoom level (pixels_per_second)
+        pps = self.pixels_per_second
+        if pps <= 3.0:
+            major_interval = 120  # 2 mins
+            minor_interval = 30
+        elif pps <= 8.0:
+            major_interval = 60   # 1 min
+            minor_interval = 15
+        elif pps <= 18.0:
+            major_interval = 15
+            minor_interval = 5
+        elif pps <= 40.0:
+            major_interval = 5
+            minor_interval = 1
+        elif pps <= 80.0:
+            major_interval = 2
+            minor_interval = 1
+        else:
+            major_interval = 1
+            minor_interval = 1
+
         painter.setFont(QFont("Segoe UI", 8))
-        major_interval = 5 if self.pixels_per_second >= 15 else 10
-        total_secs = int(math.ceil((width - self.header_width) / self.pixels_per_second))
+        total_secs = int(math.ceil((width - self.header_width) / max(0.1, pps)))
 
         for sec in range(0, total_secs + 1):
+            if sec % minor_interval != 0 and sec % major_interval != 0:
+                continue
+
             x = self.time_to_x(sec)
             if x > width:
                 break
 
             if sec % major_interval == 0:
-                painter.setPen(QPen(QColor("#71717a"), 1))
+                painter.setPen(QPen(QColor("#7c6f9f"), 1))
                 painter.drawLine(x, self.ruler_height - 12, x, self.ruler_height - 1)
 
                 mins = sec // 60
                 secs = sec % 60
                 time_str = f"{mins:02d}:{secs:02d}"
-                painter.setPen(QColor("#00e5ff" if sec == 0 else "#a1a1aa"))
+                painter.setPen(QColor("#00f5ff" if sec == 0 else "#c084fc"))
                 painter.drawText(x + 4, self.ruler_height - 6, time_str)
             else:
-                painter.setPen(QPen(QColor("#3f3f46"), 1))
+                painter.setPen(QPen(QColor("#3b2d70"), 1))
                 painter.drawLine(x, self.ruler_height - 6, x, self.ruler_height - 1)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
@@ -865,15 +999,15 @@ class TimelineCanvas(QWidget):
 
 
 class TimelineView(QWidget):
-    """The multi-track timeline container with embedded toolbar, scroll support, and CapCut aesthetics."""
+    """The multi-track timeline container with embedded toolbar, dynamic zoom, and scroll area."""
 
     seek_requested = pyqtSignal(float)
     scrub_started = pyqtSignal()
     clip_dropped = pyqtSignal(str, int, float)
     clip_selected = pyqtSignal(object)
     clip_delete_requested = pyqtSignal(object)
-    split_requested = pyqtSignal(str, float)  # (clip_id, global_time)
-    trim_requested = pyqtSignal(object, float, bool)  # (clip_widget, new_val, is_left)
+    split_requested = pyqtSignal(str, float)
+    trim_requested = pyqtSignal(object, float, bool)
     split_at_playhead_requested = pyqtSignal()
     tool_changed = pyqtSignal(str)
 
@@ -883,11 +1017,13 @@ class TimelineView(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # 1. Top Toolbar
+        # 1. Top Toolbar with Editing Tools & Zoom Controls
         self.toolbar = ToolbarView(self)
         self.toolbar.tool_changed.connect(self._on_tool_changed)
         self.toolbar.split_at_playhead_requested.connect(self.split_at_playhead_requested.emit)
         self.toolbar.delete_requested.connect(self._on_toolbar_delete_requested)
+        self.toolbar.zoom_changed.connect(self.set_zoom_level)
+        self.toolbar.zoom_fit_requested.connect(self.zoom_fit_to_screen)
         layout.addWidget(self.toolbar)
 
         # 2. Scroll Area containing Canvas
@@ -897,33 +1033,36 @@ class TimelineView(QWidget):
         self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.scroll_area.setStyleSheet("""
             QScrollArea {
-                background-color: #18181b;
-                border: 1px solid #27272a;
+                background-color: #0c0a17;
+                border: 1px solid #2d2159;
             }
             QScrollBar:horizontal {
-                background-color: #141416;
+                background-color: #0c0a17;
                 height: 10px;
             }
             QScrollBar::handle:horizontal {
-                background-color: #3f3f46;
+                background-color: #312361;
                 border-radius: 4px;
                 min-width: 20px;
             }
             QScrollBar::handle:horizontal:hover {
-                background-color: #0284c7;
+                background-color: #7c3aed;
             }
             QScrollBar:vertical {
-                background-color: #141416;
+                background-color: #0c0a17;
                 width: 10px;
             }
             QScrollBar::handle:vertical {
-                background-color: #3f3f46;
+                background-color: #312361;
                 border-radius: 4px;
                 min-height: 20px;
             }
+            QScrollBar::handle:vertical:hover {
+                background-color: #7c3aed;
+            }
         """)
 
-        self.canvas = TimelineCanvas(pixels_per_second=PIXELS_PER_SECOND)
+        self.canvas = TimelineCanvas(pixels_per_second=DEFAULT_PIXELS_PER_SECOND)
         self.scroll_area.setWidget(self.canvas)
         layout.addWidget(self.scroll_area, stretch=1)
 
@@ -935,18 +1074,53 @@ class TimelineView(QWidget):
         self.canvas.clip_delete_requested.connect(self.clip_delete_requested.emit)
         self.canvas.split_requested.connect(self.split_requested.emit)
         self.canvas.trim_requested.connect(self.trim_requested.emit)
+        self.canvas.zoom_changed.connect(self.toolbar.set_zoom_value)
 
         # Default track strips
         self.canvas.add_track_strip("Video 1")
         self.canvas.add_track_strip("Video 2")
         self.canvas.add_track_strip("Audio 1")
 
+    def wheelEvent(self, event: QWheelEvent) -> None:
+        """Handles Ctrl + Wheel or touchpad pinch to zoom the timeline smoothly."""
+        if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            delta = event.angleDelta().y()
+            if delta != 0:
+                zoom_factor = 1.15 if delta > 0 else (1.0 / 1.15)
+                current_pps = self.canvas.pixels_per_second
+                new_pps = current_pps * zoom_factor
+                self.set_zoom_level(new_pps)
+                event.accept()
+                return
+        super().wheelEvent(event)
+
+    def set_zoom_level(self, pixels_per_second: float) -> None:
+        """Sets zoom level and keeps playhead in viewport."""
+        self.canvas.set_zoom_level(pixels_per_second)
+        self._ensure_playhead_visible()
+
+    def zoom_in(self) -> None:
+        """Zooms in timeline by one step."""
+        self.set_zoom_level(self.canvas.pixels_per_second * 1.25)
+
+    def zoom_out(self) -> None:
+        """Zooms out timeline by one step."""
+        self.set_zoom_level(self.canvas.pixels_per_second * 0.8)
+
+    def zoom_fit_to_screen(self) -> None:
+        """Automatically scales timeline zoom so the entire video project fits on screen."""
+        max_dur = self.canvas.max_duration
+        if max_dur > 0.5:
+            viewport_w = self.scroll_area.viewport().width()
+            available_w = max(200, viewport_w - self.canvas.header_width - 80)
+            fit_pps = max(MIN_PIXELS_PER_SECOND, min(MAX_PIXELS_PER_SECOND, available_w / max_dur))
+            self.set_zoom_level(fit_pps)
+
     def _on_tool_changed(self, tool_name: str) -> None:
         self.canvas.set_active_tool(tool_name)
         self.tool_changed.emit(tool_name)
 
     def set_active_tool(self, tool_name: str) -> None:
-        """Sets active tool and updates toolbar button state."""
         self.toolbar.set_active_tool(tool_name)
 
     def _on_toolbar_delete_requested(self) -> None:

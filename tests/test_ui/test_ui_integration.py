@@ -215,3 +215,36 @@ def test_export_dialog_initialization(main_window):
     assert dlg.combo_fps.count() >= 3
     assert dlg.btn_export.isEnabled()
     dlg.close()
+
+
+def test_timeline_zoom_controls_and_scaling(main_window):
+    """Validates timeline zoom level adjustments, clip width scaling, and fit-to-screen."""
+    main_window.project.tracks[0].clips.clear()
+    clip = Clip(
+        file_path="sample.mp4",
+        name="Zoom Target",
+        source_start=0.0,
+        source_end=10.0,
+        timeline_position=2.0,
+    )
+    main_window.project.tracks[0].clips.append(clip)
+    main_window._rebuild_timeline_widgets()
+
+    clip_w = main_window.timeline_view.canvas.track_strips[0].lane.clip_widgets[0]
+    initial_w = clip_w.width()
+
+    # 1. Zoom in
+    main_window.timeline_view.set_zoom_level(50.0)
+    assert main_window.timeline_view.canvas.pixels_per_second == 50.0
+    assert clip_w.width() > initial_w
+
+    # 2. Zoom out (make timeline smaller / shorter ratio)
+    main_window.timeline_view.set_zoom_level(5.0)
+    assert main_window.timeline_view.canvas.pixels_per_second == 5.0
+    assert clip_w.width() < initial_w
+    assert clip_w.x() == int(2.0 * 5.0)  # 10px
+
+    # 3. Fit to screen
+    main_window.timeline_view.zoom_fit_to_screen()
+    assert main_window.timeline_view.canvas.pixels_per_second >= 2.0
+
