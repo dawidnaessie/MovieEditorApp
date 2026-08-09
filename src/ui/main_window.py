@@ -435,7 +435,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(object, float, bool)
     def _on_trim_requested(self, clip_widget: ClipWidget, new_value: float, is_left: bool) -> None:
-        """Applies edge trimming to the model and updates playhead bounds."""
+        """Applies edge trimming and slow-motion stretching to the model and updates playhead bounds."""
         track_index = getattr(clip_widget, "track_index", -1)
         if not (0 <= track_index < len(self.project.tracks)):
             return
@@ -447,6 +447,15 @@ class MainWindow(QMainWindow):
             track.trim_clip_left(clip_id, new_value)
         else:
             track.trim_clip_right(clip_id, new_value)
+
+        clip_model = track.find_clip_by_id(clip_id)
+        if clip_model:
+            clip_widget.duration = clip_model.duration
+            if hasattr(clip_widget, "lbl_dur"):
+                if abs(clip_model.speed - 1.0) >= 0.05:
+                    clip_widget.lbl_dur.setText(f"{clip_model.duration:.1f}s ({clip_model.speed:.2f}x)")
+                else:
+                    clip_widget.lbl_dur.setText(f"{clip_model.duration:.1f}s")
 
         self.timeline_view.set_max_duration(self.get_max_timeline_duration())
         self._render_current_frame(force=True)

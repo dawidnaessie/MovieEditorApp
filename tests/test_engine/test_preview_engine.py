@@ -185,3 +185,35 @@ def test_preview_engine_audio_pcm(dummy_video_file):
         assert len(pcm) == int(0.5 * 44100 * 2 * 2)
     finally:
         engine.close()
+
+
+def test_preview_engine_slow_motion_frame_extraction(dummy_video_file):
+    """Validates frame retrieval across a slowed down / extended clip without freezing."""
+    engine = PreviewEngine()
+    try:
+        # 1.0s video file stretched to 4.0s (0.25x slow motion)
+        clip = Clip(
+            file_path=dummy_video_file,
+            name="Slow Mo",
+            source_start=0.0,
+            source_end=1.0,
+            timeline_position=0.0,
+            playback_duration=4.0,
+        )
+        assert clip.duration == 4.0
+        assert clip.speed == 0.25
+
+        # At local_time 2.0s -> maps to source 0.5s
+        src_time_mid = clip.get_source_time(2.0)
+        assert abs(src_time_mid - 0.5) < 1e-4
+
+        frame_start = engine.get_frame(clip, time_in_seconds=0.0)
+        frame_mid = engine.get_frame(clip, time_in_seconds=2.0)
+        frame_end = engine.get_frame(clip, time_in_seconds=3.9)
+
+        assert isinstance(frame_start, np.ndarray)
+        assert isinstance(frame_mid, np.ndarray)
+        assert isinstance(frame_end, np.ndarray)
+    finally:
+        engine.close()
+

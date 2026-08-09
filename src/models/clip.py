@@ -1,7 +1,7 @@
 import os
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tiff", ".gif"}
 AUDIO_EXTENSIONS = {".mp3", ".wav", ".aac", ".flac", ".m4a", ".ogg"}
@@ -43,6 +43,7 @@ class Clip:
         timeline_position (float): The global timeline timestamp (in seconds) where this clip begins playback.
         media_type (str): Category of media ('video', 'image', or 'audio'). Defaults to auto-detected type.
         image_duration (float): Display duration in seconds for static image clips (defaults to 5.0s, freely extendable).
+        playback_duration (Optional[float]): Active timeline duration when time-stretched or slowed down.
         id (str): Unique UUID identifier for tracking this clip across the UI and preview engine.
     """
 
@@ -53,6 +54,7 @@ class Clip:
     timeline_position: float = 0.0
     media_type: str = "video"
     image_duration: float = 5.0
+    playback_duration: Optional[float] = None
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
 
     def __post_init__(self) -> None:
@@ -69,17 +71,60 @@ class Clip:
 
     @property
     def duration(self) -> float:
-        """Calculates the duration of the active clip segment in seconds.
+        """Calculates the active playback duration on the timeline in seconds.
 
         For images, returns `image_duration`.
-        For video and audio, returns `source_end - source_start`.
+        For video and audio, returns `playback_duration` if explicitly extended or altered,
+        otherwise defaults to `source_end - source_start`.
 
         Returns:
             float: Non-negative duration in seconds.
         """
         if self.is_image:
             return max(0.1, float(self.image_duration))
+        if self.playback_duration is not None and self.playback_duration > 0:
+            return max(0.1, float(self.playback_duration))
         return max(0.0, float(self.source_end - self.source_start))
+
+    @property
+    def speed(self) -> float:
+        """Calculates the playback speed factor.
+
+        1.0 is normal speed, < 1.0 is slowed down (extended), > 1.0 is sped up (compressed).
+
+        Returns:
+            float: Speed multiplier (defaults to 1.0).
+        """
+        if self.is_image:
+            return 1.0
+        source_range = max(0.0, float(self.source_end - self.source_start))
+        dur = self.duration
+        if dur <= 0.0 or source_range <= 0.0:
+            return 1.0
+        return source_range / dur
+
+    def get_source_time(self, local_time: float) -> float:
+        """Translates a local clip timestamp (0 to duration) to the source media timestamp.
+
+        If the clip is extended on the timeline, automatically scales playback speed
+        (time-stretching / slow-motion) so footage maps smoothly across the new length without freezing.
+
+        Args:
+            local_time (float): Local timestamp in seconds relative to clip start.
+
+        Returns:
+            float: Source media timestamp in seconds.
+        """
+        if self.is_image:
+            return 0.0
+
+        source_range = max(0.0, float(self.source_end - self.source_start))
+        dur = self.duration
+        if dur <= 0.0 or source_range <= 0.0:
+            return self.source_start
+
+        progress = max(0.0, min(1.0, float(local_time) / dur))
+        return self.source_start + (progress * source_range)
 
     def frame_count(self, fps: float = 30.0) -> int:
         """Calculates the total number of frames contained within this clip segment.
@@ -123,6 +168,7 @@ class Clip:
             "timeline_position": float(self.timeline_position),
             "media_type": self.media_type,
             "image_duration": float(self.image_duration),
+            "playback_duration": float(self.playback_duration) if self.playback_duration is not None else None,
             "id": self.id,
         }
 
@@ -139,6 +185,8 @@ class Clip:
         file_path = str(data.get("file_path", ""))
         default_type = detect_media_type(file_path)
         media_type = str(data.get("media_type", default_type))
+        raw_pb_dur = data.get("playback_duration")
+        playback_duration = float(raw_pb_dur) if raw_pb_dur is not None else None
 
         return cls(
             file_path=file_path,
@@ -148,5 +196,6 @@ class Clip:
             timeline_position=float(data.get("timeline_position", 0.0)),
             media_type=media_type,
             image_duration=float(data.get("image_duration", 5.0)),
+            playback_duration=playback_duration,
             id=str(data.get("id", uuid.uuid4())),
         )

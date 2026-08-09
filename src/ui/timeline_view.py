@@ -335,7 +335,11 @@ class ClipWidget(QWidget):
             new_w = max(15, int(self._orig_w + dx))
             new_dur = max(0.2, new_w / self.pixels_per_second)
             self.resize(new_w, self.height())
-            self.lbl_dur.setText(f"{new_dur:.1f}s")
+            speed = (self._orig_dur / new_dur) if (new_dur > 0 and self._orig_dur > 0) else 1.0
+            if abs(speed - 1.0) >= 0.05:
+                self.lbl_dur.setText(f"{new_dur:.1f}s ({speed:.2f}x)")
+            else:
+                self.lbl_dur.setText(f"{new_dur:.1f}s")
             event.accept()
             return
         elif self._trim_mode == "left":

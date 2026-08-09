@@ -73,8 +73,11 @@ class Track:
             )
         else:
             orig_source_end = target_clip.source_end
-            split_source_time = target_clip.source_start + offset
+            split_source_time = target_clip.get_source_time(offset)
+            orig_duration = target_clip.duration
             target_clip.source_end = split_source_time
+            target_clip.playback_duration = offset
+
             right_clip = Clip(
                 file_path=target_clip.file_path,
                 name=f"{target_clip.name} (Split)",
@@ -82,6 +85,7 @@ class Track:
                 source_end=orig_source_end,
                 timeline_position=global_time,
                 media_type=target_clip.media_type,
+                playback_duration=max(0.1, orig_duration - offset),
             )
 
         self.clips.insert(target_index + 1, right_clip)
@@ -113,11 +117,16 @@ class Track:
             clip.image_duration = max(0.1, clip.image_duration - delta)
         else:
             clip.source_start = max(0.0, clip.source_start + delta)
+            if clip.playback_duration is not None:
+                clip.playback_duration = max(0.1, clip.playback_duration - delta)
 
         return True
 
     def trim_clip_right(self, clip_id: str, new_duration: float) -> bool:
-        """Trims the out-point (duration) of a clip.
+        """Trims or extends the out-point (duration) of a clip.
+
+        When extended past the original source range, adjusts playback duration
+        to slow down footage and match the new timeline length.
 
         Args:
             clip_id (str): UUID of the clip to trim.
@@ -133,7 +142,7 @@ class Track:
         if clip.is_image:
             clip.image_duration = max(0.1, new_duration)
         else:
-            clip.source_end = clip.source_start + max(0.1, new_duration)
+            clip.playback_duration = max(0.1, new_duration)
 
         return True
 

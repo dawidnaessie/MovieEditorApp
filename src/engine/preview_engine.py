@@ -157,7 +157,7 @@ class PreviewEngine:
         if media is None:
             return np.zeros((1080, 1920, 3), dtype=np.uint8)
 
-        actual_media_time = clip.source_start + time_in_seconds
+        actual_media_time = clip.get_source_time(time_in_seconds)
         media_duration = float(getattr(media, "duration", 0.0) or 0.0)
         media_fps = float(getattr(media, "fps", 30.0) or 30.0)
         end_buffer = max(0.08, 2.0 / max(1.0, media_fps))
@@ -467,8 +467,8 @@ class PreviewEngine:
             if audio_arr is None or audio_arr.shape[0] == 0:
                 continue
 
-            clip_src_start = clip.source_start + (overlap_start - clip.timeline_position)
-            clip_src_end = clip_src_start + (overlap_end - overlap_start)
+            clip_src_start = clip.get_source_time(overlap_start - clip.timeline_position)
+            clip_src_end = clip.get_source_time(overlap_end - clip.timeline_position)
 
             src_start_idx = max(0, int(round(clip_src_start * sample_rate)))
             src_end_idx = min(audio_arr.shape[0], int(round(clip_src_end * sample_rate)))

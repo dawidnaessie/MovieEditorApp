@@ -172,9 +172,10 @@ class RenderEngine:
 
                             # Subclip the trimmed active segment
                             src_start = max(0.0, clip_model.source_start)
+                            src_range = max(0.0, clip_model.source_end - clip_model.source_start)
                             src_end = min(getattr(v_clip, "duration", 0.0) or clip_model.source_end, clip_model.source_end)
                             if src_end <= src_start:
-                                src_end = src_start + clip_model.duration
+                                src_end = src_start + (src_range if src_range > 0 else clip_model.duration)
 
                             if hasattr(v_clip, "subclipped"):
                                 segment = v_clip.subclipped(src_start, src_end)
@@ -182,6 +183,21 @@ class RenderEngine:
                                 segment = v_clip.subclip(src_start, src_end)
                             else:
                                 segment = v_clip
+
+                            # If clip is extended / slowed down or sped up, apply speed scaling
+                            target_dur = clip_model.duration
+                            eff_src_dur = max(0.05, float(getattr(segment, "duration", 0.0) or (src_end - src_start)))
+                            if target_dur > 0 and abs(target_dur - eff_src_dur) > 0.05:
+                                speed_factor = eff_src_dur / target_dur
+                                try:
+                                    from moviepy.video.fx import MultiplySpeed
+                                    segment = segment.with_effects([MultiplySpeed(speed_factor)])
+                                except Exception:
+                                    try:
+                                        if hasattr(segment, "with_speed_scaled"):
+                                            segment = segment.with_speed_scaled(speed_factor)
+                                    except Exception:
+                                        pass
 
                             segment = _apply_clip_timing(segment, clip_model.timeline_position, clip_model.duration)
                             if hasattr(segment, "resized"):

@@ -207,6 +207,12 @@ def test_edge_trimming_signal_handling(main_window):
     assert clip.timeline_position == 8.0
     assert clip.source_start == 3.0
 
+    # Extend right edge to 40.0s (slow-motion stretch: source range 17.0s over 40.0s = 0.425x)
+    main_window._on_trim_requested(clip_w, 40.0, is_left=False)
+    assert clip.duration == 40.0
+    assert abs(clip.speed - (17.0 / 40.0)) < 1e-4
+    assert "(0.42x)" in clip_w.lbl_dur.text() or "(0.43x)" in clip_w.lbl_dur.text()
+
 
 def test_export_dialog_initialization(main_window):
     """Validates ExportDialog component initialization and preset options."""

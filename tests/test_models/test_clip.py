@@ -116,3 +116,39 @@ def test_clip_serialization_round_trip():
     assert restored.timeline_position == original.timeline_position
     assert restored.id == original.id
     assert restored.duration == original.duration
+
+
+def test_clip_time_stretch_slow_motion_and_source_time_mapping():
+    """Validates slow-motion stretching when extending clip duration on timeline."""
+    clip = Clip(
+        file_path="action.mp4",
+        name="Action Shot",
+        source_start=2.0,
+        source_end=12.0,  # 10.0s source range
+        timeline_position=0.0,
+    )
+    # Default: speed is 1.0x, duration is 10.0s
+    assert clip.duration == 10.0
+    assert clip.speed == 1.0
+    assert clip.get_source_time(0.0) == 2.0
+    assert clip.get_source_time(5.0) == 7.0
+    assert clip.get_source_time(10.0) == 12.0
+
+    # Extend duration to 20.0s (0.5x half-speed slow motion)
+    clip.playback_duration = 20.0
+    assert clip.duration == 20.0
+    assert clip.speed == 0.5
+
+    # Verify source time maps smoothly across 20s without freezing
+    assert clip.get_source_time(0.0) == 2.0
+    assert clip.get_source_time(10.0) == 7.0
+    assert clip.get_source_time(20.0) == 12.0
+
+    # Serialization round-trip with playback_duration
+    data = clip.to_dict()
+    assert data["playback_duration"] == 20.0
+    restored = Clip.from_dict(data)
+    assert restored.duration == 20.0
+    assert restored.speed == 0.5
+    assert restored.get_source_time(10.0) == 7.0
+

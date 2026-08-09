@@ -112,7 +112,13 @@ def test_track_trimming():
     ok_r = track.trim_clip_right(clip.id, new_duration=8.0)
     assert ok_r is True
     assert clip.duration == 8.0
-    assert clip.source_end == 12.0
+
+    # Extend right edge past source range to 32.0s (slow-motion stretch)
+    ok_extend = track.trim_clip_right(clip.id, new_duration=32.0)
+    assert ok_extend is True
+    assert clip.duration == 32.0
+    assert clip.speed == (16.0 / 32.0)  # 0.5x speed
+    assert clip.get_source_time(16.0) == 4.0 + 8.0  # 12.0s midpoint in source
 
 
 def test_track_serialization_round_trip():
