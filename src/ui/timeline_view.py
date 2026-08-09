@@ -1,7 +1,9 @@
-"""Production Multi-Track Timeline Canvas and View with Dynamic Zoom and Polished Track Headers.
+"""Production Multi-Track Timeline Canvas and View with Dynamic Zoom and Interactive Clip Moving.
 
 Features:
 - Track headers rendered on solid QFrames with explicit badges, preventing text clipping.
+- Click-and-drag clip repositioning (moving clips to new timeline positions with live feedback).
+- Playhead indicator scrubbing strictly restricted to the top ruler arrowhead bar.
 - Dynamic timeline zooming (Ctrl + Wheel / Touchpad pinch, toolbar slider, zoom in/out, fit to screen).
 - Adaptive ruler tick intervals based on zoom level (seconds, minutes, or frame divisions).
 - Razor scissors cutting tool and interactive edge trimming.
@@ -87,14 +89,13 @@ def calculate_clip_pixel_width(
 
 
 class ClipWidget(QWidget):
-    """A professional NLE clip block with title, filmstrip thumbnails, razor cutting, and edge trimming."""
+    """A professional NLE clip block with title, filmstrip thumbnails, click-and-drag moving, razor cutting, and edge trimming."""
 
     clip_selected = pyqtSignal(object)  # Emits self (ClipWidget)
     delete_requested = pyqtSignal(object)  # Emits self (ClipWidget)
-    seek_requested = pyqtSignal(float)
-    scrub_started = pyqtSignal()
     split_requested = pyqtSignal(str, float)  # (clip_id, global_split_time)
     trim_requested = pyqtSignal(object, float, bool)  # (self, new_val, is_left)
+    clip_moved = pyqtSignal(object, float)  # (self, new_timeline_position)
 
     def __init__(
         self,
@@ -124,6 +125,9 @@ class ClipWidget(QWidget):
 
         # Edge trimming state
         self._trim_mode: Optional[str] = None  # "left", "right", or None
+
+        # Drag-to-move state
+        self._is_moving: bool = False
         self._drag_start_x: float = 0.0
         self._orig_pos: float = 0.0
         self._orig_dur: float = 0.0
@@ -171,7 +175,7 @@ class ClipWidget(QWidget):
         layout.addLayout(header_layout)
         layout.addStretch(1)
 
-        self.setToolTip(f"🎬 {clip_name}\nTrack: {track_index + 1}\nDuration: {self.duration:.2f}s\n[Click to select, Razor (C) to cut, Drag edge to trim]")
+        self.setToolTip(f"🎬 {clip_name}\nTrack: {track_index + 1}\nDuration: {self.duration:.2f}s\n[Click & drag to move, Drag edge to trim, Razor (C) to cut]")
         self.show()
 
     def update_zoom(self, pixels_per_second: float) -> None:
@@ -196,7 +200,7 @@ class ClipWidget(QWidget):
         if tool_name == "razor":
             self.setCursor(Qt.CursorShape.CrossCursor)
         else:
-            self.setCursor(Qt.CursorShape.ArrowCursor)
+            self.setCursor(Qt.CursorShape.OpenHandCursor)
 
     def _update_style(self) -> None:
         """Updates CSS border based on selection state."""
@@ -278,17 +282,31 @@ class ClipWidget(QWidget):
                 event.accept()
                 return
 
-            # 3. Standard selection and scrub seek
+            # 3. Drag-to-Move Initiation (Body click)
+            self._is_moving = True
+            self._drag_start_x = event.globalPosition().x()
+            self._orig_x = self.x()
+            self._orig_pos = self.timeline_position
+            self.setCursor(Qt.CursorShape.ClosedHandCursor)
             self.set_selected(True)
             self.clip_selected.emit(self)
-            self.scrub_started.emit()
-            click_time = self.timeline_position + max(0.0, event.position().x() / self.pixels_per_second)
-            self.seek_requested.emit(click_time)
+            event.accept()
+            return
 
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
-        # 1. Active Edge Dragging
+        # 1. Drag-to-Move in Progress
+        if self._is_moving:
+            dx = event.globalPosition().x() - self._drag_start_x
+            new_x = max(0, int(self._orig_x + dx))
+            new_pos = max(0.0, self._orig_pos + (dx / self.pixels_per_second))
+            self.move(new_x, self.y())
+            self.setToolTip(f"🎬 {self.clip_name}\nPosition: {new_pos:.2f}s (Duration: {self.duration:.2f}s)")
+            event.accept()
+            return
+
+        # 2. Edge Trimming in Progress
         if self._trim_mode == "right":
             dx = event.globalPosition().x() - self._drag_start_x
             new_w = max(15, int(self._orig_w + dx))
@@ -310,7 +328,7 @@ class ClipWidget(QWidget):
             event.accept()
             return
 
-        # 2. Hover Cursor Updates
+        # 3. Hover Cursor Updates
         if self.active_tool == "razor":
             self.setCursor(Qt.CursorShape.CrossCursor)
         elif self.active_tool == "select":
@@ -318,17 +336,26 @@ class ClipWidget(QWidget):
             if x <= 8 or x >= self.width() - 8:
                 self.setCursor(Qt.CursorShape.SizeHorCursor)
             else:
-                self.setCursor(Qt.CursorShape.ArrowCursor)
-
-        # 3. Scrub Seeking
-        if event.buttons() & Qt.MouseButton.LeftButton and self._trim_mode is None and self.active_tool != "razor":
-            current_time = self.timeline_position + (event.position().x() / self.pixels_per_second)
-            self.seek_requested.emit(current_time)
+                self.setCursor(Qt.CursorShape.OpenHandCursor)
 
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
+            # 1. Complete Drag-to-Move
+            if self._is_moving:
+                dx = event.globalPosition().x() - self._drag_start_x
+                new_pos = max(0.0, self._orig_pos + (dx / self.pixels_per_second))
+                self.timeline_position = new_pos
+                new_x = int(new_pos * self.pixels_per_second)
+                self.move(new_x, self.y())
+                self._is_moving = False
+                self.setCursor(Qt.CursorShape.OpenHandCursor)
+                self.clip_moved.emit(self, new_pos)
+                event.accept()
+                return
+
+            # 2. Complete Trimming
             if self._trim_mode == "right":
                 dx = event.globalPosition().x() - self._drag_start_x
                 new_dur = max(0.2, (self._orig_w + dx) / self.pixels_per_second)
@@ -427,10 +454,9 @@ class TrackLaneWidget(QWidget):
     clip_dropped = pyqtSignal(str, int, float)
     clip_selected = pyqtSignal(object)
     clip_delete_requested = pyqtSignal(object)
-    seek_requested = pyqtSignal(float)
-    scrub_started = pyqtSignal()
     split_requested = pyqtSignal(str, float)
     trim_requested = pyqtSignal(object, float, bool)
+    clip_moved = pyqtSignal(object, float)
 
     def __init__(self, track_index: int, pixels_per_second: float = DEFAULT_PIXELS_PER_SECOND):
         super().__init__()
@@ -486,10 +512,9 @@ class TrackLaneWidget(QWidget):
         clip_widget.set_active_tool(self.active_tool)
         clip_widget.clip_selected.connect(self.clip_selected.emit)
         clip_widget.delete_requested.connect(self.clip_delete_requested.emit)
-        clip_widget.seek_requested.connect(self.seek_requested.emit)
-        clip_widget.scrub_started.connect(self.scrub_started.emit)
         clip_widget.split_requested.connect(self.split_requested.emit)
         clip_widget.trim_requested.connect(self.trim_requested.emit)
+        clip_widget.clip_moved.connect(self.clip_moved.emit)
         self.clip_widgets.append(clip_widget)
         return clip_widget
 
@@ -502,19 +527,6 @@ class TrackLaneWidget(QWidget):
             clip_widget.deleteLater()
         except (RuntimeError, Exception):
             pass
-
-    def mousePressEvent(self, event: QMouseEvent) -> None:
-        if event.button() == Qt.MouseButton.LeftButton:
-            self.scrub_started.emit()
-            click_time = max(0.0, event.position().x() / self.pixels_per_second)
-            self.seek_requested.emit(click_time)
-        super().mousePressEvent(event)
-
-    def mouseMoveEvent(self, event: QMouseEvent) -> None:
-        if event.buttons() & Qt.MouseButton.LeftButton:
-            current_time = max(0.0, event.position().x() / self.pixels_per_second)
-            self.seek_requested.emit(current_time)
-        super().mouseMoveEvent(event)
 
     def dragEnterEvent(self, event: QDragEnterEvent) -> None:
         if event.mimeData().hasUrls() or event.mimeData().hasText():
@@ -616,12 +628,11 @@ class TrackStripWidget(QWidget):
     """A single horizontal track strip containing the solid header and droppable lane."""
 
     clip_dropped = pyqtSignal(str, int, float)
-    seek_requested = pyqtSignal(float)
-    scrub_started = pyqtSignal()
     clip_selected = pyqtSignal(object)
     clip_delete_requested = pyqtSignal(object)
     split_requested = pyqtSignal(str, float)
     trim_requested = pyqtSignal(object, float, bool)
+    clip_moved = pyqtSignal(object, float)
 
     def __init__(
         self,
@@ -650,10 +661,9 @@ class TrackStripWidget(QWidget):
         self.lane.clip_dropped.connect(self.clip_dropped.emit)
         self.lane.clip_selected.connect(self.clip_selected.emit)
         self.lane.clip_delete_requested.connect(self.clip_delete_requested.emit)
-        self.lane.seek_requested.connect(self.seek_requested.emit)
-        self.lane.scrub_started.connect(self.scrub_started.emit)
         self.lane.split_requested.connect(self.split_requested.emit)
         self.lane.trim_requested.connect(self.trim_requested.emit)
+        self.lane.clip_moved.connect(self.clip_moved.emit)
         layout.addWidget(self.lane, stretch=1)
 
     def set_zoom(self, pixels_per_second: float) -> None:
@@ -709,6 +719,7 @@ class TimelineCanvas(QWidget):
     clip_delete_requested = pyqtSignal(object)
     split_requested = pyqtSignal(str, float)
     trim_requested = pyqtSignal(object, float, bool)
+    clip_moved = pyqtSignal(object, float)
     zoom_changed = pyqtSignal(float)
 
     def __init__(
@@ -831,25 +842,15 @@ class TimelineCanvas(QWidget):
         strip.clip_dropped.connect(self._on_track_clip_dropped)
         strip.clip_selected.connect(self._on_clip_selected_internal)
         strip.clip_delete_requested.connect(self.clip_delete_requested.emit)
-        strip.seek_requested.connect(self._on_child_seek_requested)
-        strip.scrub_started.connect(self.scrub_started.emit)
         strip.split_requested.connect(self.split_requested.emit)
         strip.trim_requested.connect(self.trim_requested.emit)
+        strip.clip_moved.connect(self.clip_moved.emit)
         strip.lane.set_active_tool(self.active_tool)
 
         self.track_strips.append(strip)
         self.tracks_layout.addWidget(strip)
         self._reposition_playhead()
         return strip
-
-    def _on_child_seek_requested(self, target_time: float) -> None:
-        if self.max_duration > 0:
-            clamped_time = max(0.0, min(target_time, self.max_duration))
-        else:
-            clamped_time = 0.0
-        self.playhead_time = clamped_time
-        self._reposition_playhead()
-        self.seek_requested.emit(clamped_time)
 
     def add_clip_to_track(
         self,
@@ -974,13 +975,17 @@ class TimelineCanvas(QWidget):
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
-            self.deselect_all()
-            self.is_scrubbing = True
-            self.scrub_started.emit()
-            target_time = self.x_to_time(int(event.position().x()))
-            self.playhead_time = target_time
-            self._reposition_playhead()
-            self.seek_requested.emit(target_time)
+            # ONLY allow playhead scrubbing if clicking in the top ruler / arrowhead bar
+            if event.position().y() <= self.ruler_height:
+                self.deselect_all()
+                self.is_scrubbing = True
+                self.scrub_started.emit()
+                target_time = self.x_to_time(int(event.position().x()))
+                self.playhead_time = target_time
+                self._reposition_playhead()
+                self.seek_requested.emit(target_time)
+            else:
+                self.deselect_all()
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
         if self.is_scrubbing:
@@ -1008,6 +1013,7 @@ class TimelineView(QWidget):
     clip_delete_requested = pyqtSignal(object)
     split_requested = pyqtSignal(str, float)
     trim_requested = pyqtSignal(object, float, bool)
+    clip_moved = pyqtSignal(object, float)
     split_at_playhead_requested = pyqtSignal()
     tool_changed = pyqtSignal(str)
 
@@ -1074,6 +1080,7 @@ class TimelineView(QWidget):
         self.canvas.clip_delete_requested.connect(self.clip_delete_requested.emit)
         self.canvas.split_requested.connect(self.split_requested.emit)
         self.canvas.trim_requested.connect(self.trim_requested.emit)
+        self.canvas.clip_moved.connect(self.clip_moved.emit)
         self.canvas.zoom_changed.connect(self.toolbar.set_zoom_value)
 
         # Default track strips

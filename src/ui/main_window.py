@@ -284,6 +284,7 @@ class MainWindow(QMainWindow):
         self.timeline_view.clip_delete_requested.connect(self._on_clip_delete_requested)
         self.timeline_view.split_requested.connect(self._on_split_requested)
         self.timeline_view.trim_requested.connect(self._on_trim_requested)
+        self.timeline_view.clip_moved.connect(self._on_clip_moved)
         self.timeline_view.split_at_playhead_requested.connect(self._on_split_at_playhead)
 
         # Preload initial sample if present
@@ -446,6 +447,23 @@ class MainWindow(QMainWindow):
             track.trim_clip_left(clip_id, new_value)
         else:
             track.trim_clip_right(clip_id, new_value)
+
+        self.timeline_view.set_max_duration(self.get_max_timeline_duration())
+        self._render_current_frame(force=True)
+
+    @pyqtSlot(object, float)
+    def _on_clip_moved(self, clip_widget: ClipWidget, new_timeline_pos: float) -> None:
+        """Updates clip's timeline position in data model when dragged across timeline."""
+        track_index = getattr(clip_widget, "track_index", -1)
+        if not (0 <= track_index < len(self.project.tracks)):
+            return
+
+        track = self.project.tracks[track_index]
+        clip_id = getattr(clip_widget, "clip_id", "")
+        matching = [c for c in track.clips if c.id == clip_id]
+        if matching:
+            matching[0].timeline_position = max(0.0, new_timeline_pos)
+            track.clips.sort(key=lambda c: c.timeline_position)
 
         self.timeline_view.set_max_duration(self.get_max_timeline_duration())
         self._render_current_frame(force=True)

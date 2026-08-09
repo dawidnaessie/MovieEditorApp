@@ -4,6 +4,8 @@ import os
 import sys
 import numpy as np
 import pytest
+from PyQt6.QtCore import QPointF, Qt
+from PyQt6.QtGui import QMouseEvent
 from PyQt6.QtWidgets import QApplication
 
 from models.clip import Clip
@@ -247,4 +249,56 @@ def test_timeline_zoom_controls_and_scaling(main_window):
     # 3. Fit to screen
     main_window.timeline_view.zoom_fit_to_screen()
     assert main_window.timeline_view.canvas.pixels_per_second >= 2.0
+
+
+def test_clip_drag_moving_and_ruler_only_scrubbing(main_window):
+    """Validates clip drag-to-move repositioning and ruler-restricted playhead scrubbing."""
+    main_window.project.tracks[0].clips.clear()
+    clip = Clip(
+        file_path="sample.mp4",
+        name="Move Target",
+        source_start=0.0,
+        source_end=10.0,
+        timeline_position=0.0,
+    )
+    main_window.project.tracks[0].clips.append(clip)
+    main_window._rebuild_timeline_widgets()
+
+    clip_w = main_window.timeline_view.canvas.track_strips[0].lane.clip_widgets[0]
+    assert clip.timeline_position == 0.0
+
+    # 1. Move clip from 0.0s to 15.5s
+    main_window._on_clip_moved(clip_w, 15.5)
+    assert clip.timeline_position == 15.5
+    assert main_window.get_max_timeline_duration() >= 25.5
+
+    # 2. Ruler scrubbing validation
+    canvas = main_window.timeline_view.canvas
+    assert canvas.ruler_height == 30
+
+    # Clicking ruler at y=15 triggers scrubbing
+    from PyQt6.QtCore import QPointF
+    from PyQt6.QtGui import QMouseEvent
+    event_ruler = QMouseEvent(
+        QMouseEvent.Type.MouseButtonPress,
+        QPointF(230, 15),
+        Qt.MouseButton.LeftButton,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
+    canvas.mousePressEvent(event_ruler)
+    assert canvas.is_scrubbing is True
+
+    # Clicking lane below ruler at y=50 does NOT trigger scrubbing
+    canvas.is_scrubbing = False
+    event_lane = QMouseEvent(
+        QMouseEvent.Type.MouseButtonPress,
+        QPointF(230, 50),
+        Qt.MouseButton.LeftButton,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
+    canvas.mousePressEvent(event_lane)
+    assert canvas.is_scrubbing is False
+
 
