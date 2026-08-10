@@ -114,10 +114,13 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("MovieEditor - Studio")
         self.setStyleSheet("""
-            QMainWindow {
+            QMainWindow, QWidget {
                 background-color: #0c0a17;
                 color: #f5f3ff;
                 font-family: 'Segoe UI', sans-serif;
+            }
+            QSplitter {
+                background-color: #0c0a17;
             }
             QSplitter::handle {
                 background-color: #2b2154;
@@ -144,16 +147,16 @@ class MainWindow(QMainWindow):
         """)
 
         # Responsive sizing
-        self.setMinimumSize(780, 500)
+        self.setMinimumSize(850, 520)
         from PyQt6.QtGui import QGuiApplication
         screen = QGuiApplication.primaryScreen()
         if screen:
             avail = screen.availableGeometry()
-            w = min(1280, max(850, int(avail.width() * 0.85)))
-            h = min(740, max(520, int(avail.height() * 0.85)))
+            w = min(1400, max(1000, int(avail.width() * 0.88)))
+            h = min(850, max(600, int(avail.height() * 0.88)))
             self.resize(w, h)
         else:
-            self.resize(1100, 680)
+            self.resize(1280, 720)
 
         # Thread pool and active worker tracking
         self.thread_pool = QThreadPool.globalInstance()
@@ -232,29 +235,33 @@ class MainWindow(QMainWindow):
 
         # Main horizontal splitter (Media Pool on Left, Player & Timeline on Right)
         main_splitter = QSplitter(Qt.Orientation.Horizontal)
+        main_splitter.setChildrenCollapsible(False)
 
         # Left pane: Media Pool
         self.media_pool_view = MediaPoolView()
-        self.media_pool_view.setMinimumWidth(160)
+        self.media_pool_view.setMinimumWidth(270)
         main_splitter.addWidget(self.media_pool_view)
 
         # Right pane: Vertical splitter (Player on Top, Timeline on Bottom)
         right_splitter = QSplitter(Qt.Orientation.Vertical)
+        right_splitter.setChildrenCollapsible(False)
 
         self.player_view = PlayerView()
-        self.player_view.setMinimumSize(300, 200)
+        self.player_view.setMinimumSize(320, 220)
 
         self.timeline_view = TimelineView()
-        self.timeline_view.setMinimumSize(300, 140)
+        self.timeline_view.setMinimumSize(320, 180)
 
         right_splitter.addWidget(self.player_view)
         right_splitter.addWidget(self.timeline_view)
         right_splitter.setStretchFactor(0, 3)
         right_splitter.setStretchFactor(1, 2)
+        right_splitter.setSizes([550, 350])
 
         main_splitter.addWidget(right_splitter)
         main_splitter.setStretchFactor(0, 1)
         main_splitter.setStretchFactor(1, 4)
+        main_splitter.setSizes([290, 1200])
 
         main_layout.addWidget(main_splitter)
 

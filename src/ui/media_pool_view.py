@@ -102,6 +102,7 @@ class MediaPoolView(QWidget):
     def __init__(self):
         super().__init__()
         self.custom_durations: Dict[str, float] = {}
+        self.setMinimumWidth(270)
 
         self.setStyleSheet("""
             QWidget {
@@ -123,6 +124,7 @@ class MediaPoolView(QWidget):
                 padding: 7px 12px;
                 font-weight: bold;
                 font-size: 12px;
+                min-height: 22px;
             }
             QPushButton#BtnImport:hover {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #818cf8, stop:1 #a78bfa);
@@ -139,9 +141,9 @@ class MediaPoolView(QWidget):
                 color: #f5f3ff;
             }
             QListWidget::item {
-                padding: 8px;
+                padding: 7px 8px;
                 border-radius: 4px;
-                margin-bottom: 2px;
+                margin-bottom: 3px;
                 background-color: #1a1436;
                 border: 1px solid #2d2159;
             }
@@ -158,7 +160,7 @@ class MediaPoolView(QWidget):
                 background-color: #16112e;
                 border: 1px solid #2d2159;
                 border-radius: 6px;
-                padding: 6px;
+                padding: 8px;
             }
             QLabel#LengthTitle {
                 color: #c084fc;
@@ -171,10 +173,11 @@ class MediaPoolView(QWidget):
                 background-color: #201842;
                 color: #e9d5ff;
                 border: 1px solid #3b2d70;
-                border-radius: 3px;
-                padding: 3px 6px;
-                font-size: 10px;
+                border-radius: 4px;
+                padding: 4px 6px;
+                font-size: 11px;
                 font-weight: bold;
+                min-height: 20px;
             }
             QPushButton.preset-btn:hover {
                 background-color: #312366;
@@ -184,6 +187,21 @@ class MediaPoolView(QWidget):
             QPushButton.preset-btn:pressed {
                 background-color: #4c1d95;
             }
+            QPushButton.reset-btn {
+                background-color: #1c1538;
+                color: #c4b5fd;
+                border: 1px solid #36296b;
+                border-radius: 4px;
+                padding: 4px 8px;
+                font-size: 11px;
+                font-weight: bold;
+                min-height: 20px;
+            }
+            QPushButton.reset-btn:hover {
+                background-color: #2a1f52;
+                border-color: #9333ea;
+                color: #ffffff;
+            }
             QDoubleSpinBox#SpinLength {
                 background-color: #0d0a1a;
                 color: #f5f3ff;
@@ -192,6 +210,7 @@ class MediaPoolView(QWidget):
                 padding: 3px 6px;
                 font-size: 11px;
                 font-weight: bold;
+                min-height: 22px;
             }
             QDoubleSpinBox#SpinLength:focus {
                 border-color: #a855f7;
@@ -201,9 +220,10 @@ class MediaPoolView(QWidget):
                 color: #ffffff;
                 border: 1px solid #c084fc;
                 border-radius: 4px;
-                padding: 5px 8px;
+                padding: 5px 6px;
                 font-size: 11px;
                 font-weight: bold;
+                min-height: 24px;
             }
             QPushButton#BtnApplyLength:hover {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #8b5cf6, stop:1 #a855f7);
@@ -217,9 +237,10 @@ class MediaPoolView(QWidget):
                 color: #ffffff;
                 border: 1px solid #60a5fa;
                 border-radius: 4px;
-                padding: 5px 8px;
+                padding: 5px 6px;
                 font-size: 11px;
                 font-weight: bold;
+                min-height: 24px;
             }
             QPushButton#BtnInsert:hover {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #3b82f6, stop:1 #60a5fa);
@@ -256,7 +277,7 @@ class MediaPoolView(QWidget):
         self.length_frame = QFrame()
         self.length_frame.setObjectName("LengthControlFrame")
         frame_layout = QVBoxLayout(self.length_frame)
-        frame_layout.setContentsMargins(6, 6, 6, 6)
+        frame_layout.setContentsMargins(8, 8, 8, 8)
         frame_layout.setSpacing(6)
 
         # Frame Title
@@ -265,24 +286,25 @@ class MediaPoolView(QWidget):
         lbl_len_title.setToolTip("Shorten selected video(s) to end after a set period of seconds (1.0x normal speed, no stretching)")
         frame_layout.addWidget(lbl_len_title)
 
-        # Quick Presets Row
-        presets_layout = QHBoxLayout()
-        presets_layout.setSpacing(4)
+        # Quick Presets Row 1: Time values
+        presets_layout1 = QHBoxLayout()
+        presets_layout1.setSpacing(4)
         for val, lbl in [(0.2, "0.2s"), (0.5, "0.5s"), (1.0, "1.0s"), (2.0, "2.0s")]:
             btn_p = QPushButton(lbl)
             btn_p.setProperty("class", "preset-btn")
             btn_p.setCursor(Qt.CursorShape.PointingHandCursor)
             btn_p.clicked.connect(lambda checked=False, v=val: self._on_preset_clicked(v))
-            presets_layout.addWidget(btn_p)
+            presets_layout1.addWidget(btn_p)
 
-        btn_reset = QPushButton("Reset")
-        btn_reset.setProperty("class", "preset-btn")
+        frame_layout.addLayout(presets_layout1)
+
+        # Quick Presets Row 2: Reset button
+        btn_reset = QPushButton("↺ Reset to Original Duration")
+        btn_reset.setProperty("class", "reset-btn")
         btn_reset.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_reset.setToolTip("Reset to original video duration")
+        btn_reset.setToolTip("Reset selected video(s) to original media duration")
         btn_reset.clicked.connect(self._on_reset_clicked)
-        presets_layout.addWidget(btn_reset)
-
-        frame_layout.addLayout(presets_layout)
+        frame_layout.addWidget(btn_reset)
 
         # SpinBox Input Row
         spin_layout = QHBoxLayout()

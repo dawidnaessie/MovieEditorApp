@@ -823,6 +823,8 @@ class TimelineCanvas(QWidget):
 
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         self.setMinimumWidth(int(self.header_width + self.total_duration * self.pixels_per_second))
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setStyleSheet("background-color: #0c0a17;")
 
         self.main_layout = QVBoxLayout(self)
         self.main_layout.setContentsMargins(0, 0, 0, 0)
@@ -832,10 +834,12 @@ class TimelineCanvas(QWidget):
         self.ruler_height = 30
         self.ruler_spacer = QWidget()
         self.ruler_spacer.setFixedHeight(self.ruler_height)
+        self.ruler_spacer.setStyleSheet("background-color: transparent;")
         self.main_layout.addWidget(self.ruler_spacer)
 
         # 2. Tracks Container
         self.tracks_container = QWidget()
+        self.tracks_container.setStyleSheet("background-color: #0c0a17;")
         self.tracks_layout = QVBoxLayout(self.tracks_container)
         self.tracks_layout.setContentsMargins(0, 0, 0, 0)
         self.tracks_layout.setSpacing(2)
@@ -1025,6 +1029,9 @@ class TimelineCanvas(QWidget):
         width = self.width()
         height = self.height()
 
+        # 0. Complete Canvas Background (Deep Midnight Violet)
+        painter.fillRect(0, 0, width, height, QColor("#0c0a17"))
+
         # 1. Ruler Background (Deep Midnight Violet)
         painter.fillRect(0, 0, width, self.ruler_height, QColor("#100d22"))
         painter.fillRect(0, 0, self.header_width, self.ruler_height, QColor("#140f29"))
@@ -1124,6 +1131,44 @@ class TimelineView(QWidget):
 
     def __init__(self):
         super().__init__()
+        self.setStyleSheet("""
+            TimelineView, QWidget {
+                background-color: #0c0a17;
+                color: #f5f3ff;
+            }
+            QScrollArea {
+                background-color: #0c0a17;
+                border: 1px solid #2d2159;
+            }
+            QScrollArea > QWidget > QWidget {
+                background-color: #0c0a17;
+            }
+            QScrollBar:horizontal {
+                background-color: #0c0a17;
+                height: 10px;
+            }
+            QScrollBar::handle:horizontal {
+                background-color: #312361;
+                border-radius: 4px;
+                min-width: 20px;
+            }
+            QScrollBar::handle:horizontal:hover {
+                background-color: #7c3aed;
+            }
+            QScrollBar:vertical {
+                background-color: #0c0a17;
+                width: 10px;
+            }
+            QScrollBar::handle:vertical {
+                background-color: #312361;
+                border-radius: 4px;
+                min-height: 20px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background-color: #7c3aed;
+            }
+        """)
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)

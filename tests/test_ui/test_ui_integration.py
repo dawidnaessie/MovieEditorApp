@@ -531,6 +531,13 @@ def test_clip_set_play_time_dialog_and_signal_integration(main_window, monkeypat
     assert main_window.get_max_timeline_duration() >= 14.0
 
 
-
-
-
+def test_fullscreen_and_media_pool_proportions(main_window):
+    """Validates that media pool has sufficient width and controls fit comfortably without clipping."""
+    mp = main_window.media_pool_view
+    assert mp.minimumWidth() >= 260
+    assert not mp.btn_apply_length.isHidden()
+    assert not mp.btn_insert.isHidden()
+    assert not mp.spin_length.isHidden()
+    assert not mp.length_frame.isHidden()
+    assert main_window.minimumWidth() >= 800
+    assert main_window.minimumHeight() >= 500
