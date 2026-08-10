@@ -287,39 +287,10 @@ class MainWindow(QMainWindow):
         self.timeline_view.split_requested.connect(self._on_split_requested)
         self.timeline_view.trim_requested.connect(self._on_trim_requested)
         self.timeline_view.clip_moved.connect(self._on_clip_moved)
+        self.timeline_view.clip_time_updated.connect(self._on_clip_time_updated)
         self.timeline_view.split_at_playhead_requested.connect(self._on_split_at_playhead)
 
-        # Preload initial sample if present
-        video_candidates = [
-            r"C:\Users\rastisx\Desktop\Crystal Castles - Celestica.mp4",
-            r"C:\Users\rastisx\Desktop\0609 (1).mp4",
-            r"C:\Users\rastisx\Videos\2026-01-27 08-41-55.mp4",
-            os.path.abspath("Getting hit by a lance..mp4"),
-        ]
-        sample_path = next((p for p in video_candidates if os.path.exists(p)), None)
-
-        if sample_path:
-            self.media_pool_view.add_media_item(sample_path)
-            sample_dur = self.preview_engine.get_media_duration(sample_path)
-            initial_clip = Clip(
-                file_path=sample_path,
-                name=os.path.basename(sample_path),
-                source_start=0.0,
-                source_end=sample_dur,
-                timeline_position=0.0,
-            )
-            self.track_v1.clips.append(initial_clip)
-            clip_w = self.timeline_view.add_clip(
-                track_index=0,
-                file_path=sample_path,
-                timeline_position=0.0,
-                duration=sample_dur,
-                clip_id=initial_clip.id,
-            )
-            if clip_w:
-                self._load_thumbnails_async(clip_w, sample_path, 0.0, sample_dur)
-
-        # Sync max timeline boundary with loaded clips
+        # Sync max timeline boundary with initial project state
         self.timeline_view.set_max_duration(self.get_max_timeline_duration())
         self._render_current_frame(force=True)
 
@@ -514,6 +485,52 @@ class MainWindow(QMainWindow):
         self.timeline_view.set_max_duration(self.get_max_timeline_duration())
         self._render_current_frame(force=True)
 
+    @pyqtSlot(str, float, float)
+    def _on_clip_time_updated(self, clip_id: str, new_start: float, new_end: float) -> None:
+        """Invoked when user updates clip in/out play time via SetTimeDialog.
+
+        Updates the underlying Clip model, synchronizes widget duration and max timeline length,
+        reloads filmstrip thumbnails, and refreshes the preview display.
+
+        Args:
+            clip_id (str): UUID identifier of the target clip.
+            new_start (float): New in-point source timestamp in seconds.
+            new_end (float): New out-point source timestamp in seconds.
+        """
+        if not clip_id:
+            return
+
+        target_clip: Optional[Clip] = None
+        for track in self.project.tracks:
+            for clip in track.clips:
+                if clip.id == clip_id:
+                    target_clip = clip
+                    break
+            if target_clip:
+                break
+
+        if not target_clip:
+            return
+
+        try:
+            target_clip.update_source_times(new_start, new_end)
+        except ValueError:
+            return
+
+        self.timeline_view.set_max_duration(self.get_max_timeline_duration())
+
+        # Update matching ClipWidget and reload thumbnails for new time span
+        for strip in self.timeline_view.canvas.track_strips:
+            for cw in strip.lane.clip_widgets:
+                if cw.clip_id == clip_id:
+                    cw.source_start = target_clip.source_start
+                    cw.source_end = target_clip.source_end
+                    cw.duration = target_clip.duration
+                    self._load_thumbnails_async(cw, target_clip.file_path, target_clip.source_start, target_clip.duration)
+                    break
+
+        self._render_current_frame(force=True)
+
     def _rebuild_timeline_widgets(self) -> None:
         """Cleans and re-instantiates clip widgets matching the current project model."""
         # Cancel running workers
@@ -536,6 +553,8 @@ class MainWindow(QMainWindow):
                     timeline_position=clip.timeline_position,
                     duration=clip.duration,
                     clip_id=clip.id,
+                    source_start=clip.source_start,
+                    source_end=clip.source_end,
                 )
                 if clip_w:
                     self._load_thumbnails_async(clip_w, clip.file_path, clip.source_start, clip.duration)
@@ -590,6 +609,8 @@ class MainWindow(QMainWindow):
             timeline_position=timeline_pos,
             duration=real_duration,
             clip_id=new_clip.id,
+            source_start=new_clip.source_start,
+            source_end=new_clip.source_end,
         )
 
         if clip_w:
@@ -654,6 +675,8 @@ class MainWindow(QMainWindow):
                 timeline_position=current_pos,
                 duration=real_dur,
                 clip_id=new_clip.id,
+                source_start=new_clip.source_start,
+                source_end=new_clip.source_end,
             )
             if clip_w:
                 self._load_thumbnails_async(clip_w, fp, new_clip.source_start, real_dur)

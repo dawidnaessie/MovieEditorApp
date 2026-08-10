@@ -45,6 +45,11 @@ def test_main_window_components(main_window):
 
 def test_player_view_playback_and_seeking(main_window):
     """Validates timeline seeking and frame step interactions."""
+    main_window.project.tracks[0].clips.append(
+        Clip(file_path="sample.mp4", name="Sample", source_start=0.0, source_end=20.0, timeline_position=0.0)
+    )
+    main_window.timeline_view.set_max_duration(main_window.get_max_timeline_duration())
+
     # Seek to 5.0s
     main_window._on_timeline_seek(5.0)
     assert main_window.current_playback_time == 5.0
@@ -467,6 +472,64 @@ def test_media_pool_batch_insert_to_timeline(main_window, tmp_path):
     assert clips[1].speed == pytest.approx(1.0)
 
     assert main_window.get_max_timeline_duration() == pytest.approx(0.40)
+
+
+def test_clip_set_play_time_dialog_and_signal_integration(main_window, monkeypatch):
+    """Validates right-click 'Set Play Time...' dialog interaction, signal propagation, and model updates."""
+    main_window.project.tracks[0].clips.clear()
+    clip = Clip(
+        file_path="scene.mp4",
+        name="Scene 1",
+        source_start=1.0,
+        source_end=11.0,
+        timeline_position=0.0,
+    )
+    main_window.project.tracks[0].clips.append(clip)
+    main_window._rebuild_timeline_widgets()
+
+    clip_w = main_window.timeline_view.canvas.track_strips[0].lane.clip_widgets[0]
+    assert clip_w.source_start == 1.0
+    assert clip_w.source_end == 11.0
+    assert clip_w.duration == 10.0
+    initial_w = clip_w.width()
+
+    # Track emitted signals
+    received_signals = []
+    main_window.timeline_view.clip_time_updated.connect(lambda cid, s, e: received_signals.append((cid, s, e)))
+
+    # Mock SetTimeDialog execution to simulate user typing 4.0s start and 18.0s end (14.0s duration)
+    from ui.dialogs import SetTimeDialog
+    original_init = SetTimeDialog.__init__
+
+    def mock_init(self, start_time=0.0, end_time=0.0, parent=None):
+        original_init(self, start_time=start_time, end_time=end_time, parent=parent)
+        self.spin_start.setValue(4.0)
+        self.spin_end.setValue(18.0)
+
+    monkeypatch.setattr(SetTimeDialog, "__init__", mock_init)
+    monkeypatch.setattr(SetTimeDialog, "exec", lambda self: 1)  # QDialog.DialogCode.Accepted
+
+    # Trigger dialog workflow
+    clip_w._open_set_time_dialog()
+
+    # 1. Verify ClipWidget local properties updated
+    assert clip_w.source_start == 4.0
+    assert clip_w.source_end == 18.0
+    assert clip_w.duration == 14.0
+    assert clip_w.width() > initial_w
+    assert clip_w.lbl_dur.text() == "14.0s"
+
+    # 2. Verify signal emission
+    assert len(received_signals) == 1
+    assert received_signals[0] == (clip.id, 4.0, 18.0)
+
+    # 3. Verify Project model Clip object updated
+    model_clip = main_window.project.tracks[0].clips[0]
+    assert model_clip.source_start == 4.0
+    assert model_clip.source_end == 18.0
+    assert model_clip.duration == 14.0
+    assert main_window.get_max_timeline_duration() >= 14.0
+
 
 
 

@@ -152,3 +152,39 @@ def test_clip_time_stretch_slow_motion_and_source_time_mapping():
     assert restored.speed == 0.5
     assert restored.get_source_time(10.0) == 7.0
 
+
+def test_clip_update_source_times_success_and_validation():
+    """Validates update_source_times updates properties, recalculates duration, and enforces strict validation."""
+    clip = Clip(
+        file_path="video.mp4",
+        name="Scene Clip",
+        source_start=2.0,
+        source_end=10.0,
+        timeline_position=0.0,
+    )
+    assert clip.duration == 8.0
+
+    # 1. Update with valid timestamps
+    clip.update_source_times(5.0, 15.5)
+    assert clip.source_start == 5.0
+    assert clip.source_end == 15.5
+    assert clip.duration == 10.5
+    assert clip.playback_duration is None
+
+    # 2. Inverted timestamps (end <= start) must raise ValueError
+    with pytest.raises(ValueError, match="must be strictly greater than start time"):
+        clip.update_source_times(10.0, 5.0)
+
+    # 3. Equal timestamps (end == start) must raise ValueError
+    with pytest.raises(ValueError, match="must be strictly greater than start time"):
+        clip.update_source_times(8.0, 8.0)
+
+    # 4. Negative start timestamp must raise ValueError
+    with pytest.raises(ValueError, match="cannot be negative"):
+        clip.update_source_times(-1.0, 10.0)
+
+    # 5. Negative end timestamp must raise ValueError
+    with pytest.raises(ValueError, match="cannot be negative"):
+        clip.update_source_times(0.0, -5.0)
+
+

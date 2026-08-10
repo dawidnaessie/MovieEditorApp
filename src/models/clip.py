@@ -126,6 +126,28 @@ class Clip:
         progress = max(0.0, min(1.0, float(local_time) / dur))
         return self.source_start + (progress * source_range)
 
+    def update_source_times(self, new_start: float, new_end: float) -> None:
+        """Updates the source in-point and out-point timestamps for this clip.
+
+        Recalculates the active duration based on the new source segment and
+        resets any custom playback duration so the clip plays at 1.0x standard speed.
+
+        Args:
+            new_start (float): The new in-point timestamp in seconds within source media.
+            new_end (float): The new out-point timestamp in seconds within source media.
+
+        Raises:
+            ValueError: If either timestamp is negative or if new_end is not strictly greater than new_start.
+        """
+        if new_start < 0.0 or new_end < 0.0:
+            raise ValueError(f"Source timestamps cannot be negative (got start={new_start}, end={new_end}).")
+        if new_end <= new_start:
+            raise ValueError(f"Source end time ({new_end}s) must be strictly greater than start time ({new_start}s).")
+
+        self.source_start = float(new_start)
+        self.source_end = float(new_end)
+        self.playback_duration = None
+
     def frame_count(self, fps: float = 30.0) -> int:
         """Calculates the total number of frames contained within this clip segment.
 

@@ -36,6 +36,7 @@ from PyQt6.QtGui import (
     QWheelEvent,
 )
 from PyQt6.QtWidgets import (
+    QDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -46,6 +47,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from .dialogs import SetTimeDialog
 from .toolbar_view import ToolbarView
 
 # Standard timeline constants
@@ -96,6 +98,7 @@ class ClipWidget(QWidget):
     split_requested = pyqtSignal(str, float)  # (clip_id, global_split_time)
     trim_requested = pyqtSignal(object, float, bool)  # (self, new_val, is_left)
     clip_moved = pyqtSignal(object, float, int)  # (self, new_timeline_position, target_track_index)
+    clip_time_updated = pyqtSignal(str, float, float)  # (clip_id, new_start, new_end)
 
     def __init__(
         self,
@@ -110,12 +113,16 @@ class ClipWidget(QWidget):
         x: int = 0,
         y: int = 2,
         height: int = 58,
+        source_start: float = 0.0,
+        source_end: float = 0.0,
     ):
         super().__init__(parent)
         self.clip_name = clip_name
         self.file_path = file_path
         self.timeline_position = timeline_position
         self.duration = max(0.2, duration)
+        self.source_start = float(source_start)
+        self.source_end = float(source_end if source_end > 0 else (source_start + duration))
         self.track_index = track_index
         self.pixels_per_second = pixels_per_second
         self.clip_id = clip_id
@@ -412,7 +419,7 @@ class ClipWidget(QWidget):
         super().mouseReleaseEvent(event)
 
     def contextMenuEvent(self, event: QContextMenuEvent) -> None:
-        """Context menu with Delete and Split options."""
+        """Context menu with Set Play Time, Split, and Delete options."""
         self.set_selected(True)
         self.clip_selected.emit(self)
 
@@ -430,6 +437,11 @@ class ClipWidget(QWidget):
                 color: #ffffff;
             }
         """)
+
+        action_set_time = QAction("⏱️ Set Play Time...", self)
+        action_set_time.triggered.connect(self._open_set_time_dialog)
+        menu.addAction(action_set_time)
+
         action_split = QAction("✂️ Split Clip (C)", self)
         click_time = self.timeline_position + (event.pos().x() / self.pixels_per_second)
         action_split.triggered.connect(lambda: self.split_requested.emit(self.clip_id, click_time))
@@ -440,6 +452,32 @@ class ClipWidget(QWidget):
         menu.addAction(action_delete)
 
         menu.exec(event.globalPos())
+
+    def _open_set_time_dialog(self) -> None:
+        """Opens the SetTimeDialog to manually configure clip in/out points and resizes the widget."""
+        dialog = SetTimeDialog(start_time=self.source_start, end_time=self.source_end, parent=self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            new_start, new_end = dialog.get_times()
+            self.source_start = new_start
+            self.source_end = new_end
+            new_dur = max(0.1, new_end - new_start)
+            self.duration = new_dur
+
+            # Rescale pixel width to reflect new duration
+            new_w = calculate_clip_pixel_width(self.duration, self.pixels_per_second)
+            self.resize(new_w, self.height())
+            self.lbl_dur.setText(f"{self.duration:.1f}s")
+
+            # Update elided title and badge visibility
+            font = QFont("Segoe UI", 8, QFont.Weight.Bold)
+            metrics = QFontMetrics(font)
+            available_width = max(10, new_w - 40)
+            elided_title = metrics.elidedText(self.clip_name, Qt.TextElideMode.ElideRight, available_width)
+            self.lbl_title.setText(f"🎞️ {elided_title}" if new_w > 50 else elided_title)
+            self.lbl_dur.setVisible(new_w > 45)
+            self.update()
+
+            self.clip_time_updated.emit(self.clip_id, new_start, new_end)
 
     def paintEvent(self, event) -> None:
         """Paints the background and horizontal thumbnail filmstrip frames."""
@@ -493,6 +531,7 @@ class TrackLaneWidget(QWidget):
     split_requested = pyqtSignal(str, float)
     trim_requested = pyqtSignal(object, float, bool)
     clip_moved = pyqtSignal(object, float, int)
+    clip_time_updated = pyqtSignal(str, float, float)
 
     def __init__(self, track_index: int, pixels_per_second: float = DEFAULT_PIXELS_PER_SECOND):
         super().__init__()
@@ -527,6 +566,8 @@ class TrackLaneWidget(QWidget):
         timeline_position: float,
         duration: float,
         clip_id: str = "",
+        source_start: float = 0.0,
+        source_end: float = 0.0,
     ) -> ClipWidget:
         """Adds a visual clip block to the track lane matching its duration and timeline position."""
         drop_x = int(timeline_position * self.pixels_per_second)
@@ -544,6 +585,8 @@ class TrackLaneWidget(QWidget):
             x=drop_x,
             y=2,
             height=clip_height,
+            source_start=source_start,
+            source_end=source_end,
         )
         clip_widget.set_active_tool(self.active_tool)
         clip_widget.clip_selected.connect(self.clip_selected.emit)
@@ -551,6 +594,7 @@ class TrackLaneWidget(QWidget):
         clip_widget.split_requested.connect(self.split_requested.emit)
         clip_widget.trim_requested.connect(self.trim_requested.emit)
         clip_widget.clip_moved.connect(self.clip_moved.emit)
+        clip_widget.clip_time_updated.connect(self.clip_time_updated.emit)
         self.clip_widgets.append(clip_widget)
         return clip_widget
 
@@ -669,6 +713,7 @@ class TrackStripWidget(QWidget):
     split_requested = pyqtSignal(str, float)
     trim_requested = pyqtSignal(object, float, bool)
     clip_moved = pyqtSignal(object, float, int)
+    clip_time_updated = pyqtSignal(str, float, float)
 
     def __init__(
         self,
@@ -700,6 +745,7 @@ class TrackStripWidget(QWidget):
         self.lane.split_requested.connect(self.split_requested.emit)
         self.lane.trim_requested.connect(self.trim_requested.emit)
         self.lane.clip_moved.connect(self.clip_moved.emit)
+        self.lane.clip_time_updated.connect(self.clip_time_updated.emit)
         layout.addWidget(self.lane, stretch=1)
 
     def set_zoom(self, pixels_per_second: float) -> None:
@@ -756,6 +802,7 @@ class TimelineCanvas(QWidget):
     split_requested = pyqtSignal(str, float)
     trim_requested = pyqtSignal(object, float, bool)
     clip_moved = pyqtSignal(object, float, int)
+    clip_time_updated = pyqtSignal(str, float, float)
     zoom_changed = pyqtSignal(float)
 
     def __init__(
@@ -897,6 +944,7 @@ class TimelineCanvas(QWidget):
         strip.split_requested.connect(self.split_requested.emit)
         strip.trim_requested.connect(self.trim_requested.emit)
         strip.clip_moved.connect(self.clip_moved.emit)
+        strip.clip_time_updated.connect(self.clip_time_updated.emit)
         strip.lane.set_active_tool(self.active_tool)
 
         self.track_strips.append(strip)
@@ -911,6 +959,8 @@ class TimelineCanvas(QWidget):
         timeline_position: float,
         duration: float,
         clip_id: str = "",
+        source_start: float = 0.0,
+        source_end: float = 0.0,
     ) -> ClipWidget | None:
         if 0 <= track_index < len(self.track_strips):
             strip = self.track_strips[track_index]
@@ -921,6 +971,8 @@ class TimelineCanvas(QWidget):
                 timeline_position=timeline_position,
                 duration=duration,
                 clip_id=clip_id,
+                source_start=source_start,
+                source_end=source_end,
             )
             drop_x = self.time_to_x(timeline_position)
             clip_pixel_w = int(duration * self.pixels_per_second)
@@ -1066,6 +1118,7 @@ class TimelineView(QWidget):
     split_requested = pyqtSignal(str, float)
     trim_requested = pyqtSignal(object, float, bool)
     clip_moved = pyqtSignal(object, float, int)
+    clip_time_updated = pyqtSignal(str, float, float)
     split_at_playhead_requested = pyqtSignal()
     tool_changed = pyqtSignal(str)
 
@@ -1133,6 +1186,7 @@ class TimelineView(QWidget):
         self.canvas.split_requested.connect(self.split_requested.emit)
         self.canvas.trim_requested.connect(self.trim_requested.emit)
         self.canvas.clip_moved.connect(self.clip_moved.emit)
+        self.canvas.clip_time_updated.connect(self.clip_time_updated.emit)
         self.canvas.zoom_changed.connect(self.toolbar.set_zoom_value)
 
         # Default track strips
@@ -1196,8 +1250,18 @@ class TimelineView(QWidget):
         timeline_position: float,
         duration: float,
         clip_id: str = "",
+        source_start: float = 0.0,
+        source_end: float = 0.0,
     ) -> ClipWidget | None:
-        return self.canvas.add_clip_to_track(track_index, file_path, timeline_position, duration, clip_id=clip_id)
+        return self.canvas.add_clip_to_track(
+            track_index,
+            file_path,
+            timeline_position,
+            duration,
+            clip_id=clip_id,
+            source_start=source_start,
+            source_end=source_end,
+        )
 
     def remove_clip_widget(self, clip_widget: ClipWidget) -> None:
         self.canvas.remove_clip_widget(clip_widget)
