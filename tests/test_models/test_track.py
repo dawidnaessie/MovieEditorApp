@@ -140,3 +140,18 @@ def test_track_serialization_round_trip():
     assert len(restored.clips) == 1
     assert restored.clips[0].name == "Theme"
     assert restored.clips[0].duration == 30.0
+
+
+def test_track_get_duration():
+    """Validates get_track_duration on empty and populated tracks."""
+    track = Track(name="Video 1")
+    assert track.get_track_duration() == 0.0
+    assert track.get_duration() == 0.0
+
+    c1 = Clip(file_path="a.mp4", name="A", source_start=0.0, source_end=5.0, timeline_position=2.0)
+    c2 = Clip(file_path="b.mp4", name="B", source_start=0.0, source_end=8.0, timeline_position=10.0)
+    track.clips.extend([c1, c2])
+
+    assert track.get_track_duration() == 18.0
+    assert track.get_duration() == 18.0
+

@@ -112,7 +112,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("AI Movie Editor - Studio")
+        self.setWindowTitle("MovieEditor - Studio")
         self.setStyleSheet("""
             QMainWindow {
                 background-color: #0c0a17;
@@ -163,7 +163,7 @@ class MainWindow(QMainWindow):
         self.preview_engine = PreviewEngine(cache_size=160)
         self.fps: float = 30.0
         self.sample_rate: int = 44100
-        self.project = Project(name="AI Studio Project", resolution=(1920, 1080), fps=self.fps)
+        self.project = Project(name="MovieEditor Project", resolution=(1920, 1080), fps=self.fps)
 
         # Standard Tracks (Video 1, Video 2, Audio 1)
         self.track_v1 = self.project.add_track("Video 1", track_type="video")
@@ -275,6 +275,8 @@ class MainWindow(QMainWindow):
 
         # 6. Connect MediaPool Signals
         self.media_pool_view.media_imported.connect(self._on_media_imported)
+        self.media_pool_view.add_to_timeline_requested.connect(self._on_media_add_to_timeline)
+        self.media_pool_view.duration_changed.connect(self._on_media_duration_changed)
 
         # 7. Connect Timeline Signals
         self.timeline_view.scrub_started.connect(self.pause)
@@ -552,9 +554,13 @@ class MainWindow(QMainWindow):
 
         self.media_pool_view.add_media_item(file_path)
 
+        custom_dur = None
+        if hasattr(self.media_pool_view, "get_custom_duration"):
+            custom_dur = self.media_pool_view.get_custom_duration(file_path)
+
         media_type = detect_media_type(file_path)
         if media_type == "image":
-            real_duration = 5.0
+            real_duration = custom_dur if (custom_dur is not None and custom_dur > 0) else 5.0
             new_clip = Clip(
                 file_path=file_path,
                 name=os.path.basename(file_path),
@@ -563,9 +569,10 @@ class MainWindow(QMainWindow):
                 timeline_position=timeline_pos,
             )
         else:
-            real_duration = self.preview_engine.get_media_duration(file_path)
-            if real_duration <= 0.0:
-                real_duration = 5.0
+            full_duration = self.preview_engine.get_media_duration(file_path)
+            if full_duration <= 0.0:
+                full_duration = 5.0
+            real_duration = min(full_duration, custom_dur) if (custom_dur is not None and custom_dur > 0) else full_duration
             new_clip = Clip(
                 file_path=file_path,
                 name=os.path.basename(file_path),
@@ -596,6 +603,88 @@ class MainWindow(QMainWindow):
 
         if was_playing:
             self.play()
+
+    @pyqtSlot(list, float)
+    def _on_media_add_to_timeline(self, file_paths: List[str], duration: float) -> None:
+        """Appends selected media files from Media Pool to Track 1 ending at the specified duration (1.0x speed)."""
+        if not file_paths:
+            return
+
+        target_track_index = 0
+        if not (0 <= target_track_index < len(self.project.tracks)):
+            target_track_index = 0
+
+        track = self.project.tracks[target_track_index]
+        current_pos = track.get_track_duration()
+
+        for fp in file_paths:
+            if not fp or not os.path.exists(fp):
+                continue
+
+            self.media_pool_view.add_media_item(fp)
+            media_type = detect_media_type(fp)
+
+            if media_type == "image":
+                real_dur = duration if duration > 0 else 5.0
+                new_clip = Clip(
+                    file_path=fp,
+                    name=os.path.basename(fp),
+                    media_type="image",
+                    image_duration=real_dur,
+                    timeline_position=current_pos,
+                )
+            else:
+                full_dur = self.preview_engine.get_media_duration(fp)
+                if full_dur <= 0.0:
+                    full_dur = 5.0
+                real_dur = min(full_dur, duration) if duration > 0 else full_dur
+                new_clip = Clip(
+                    file_path=fp,
+                    name=os.path.basename(fp),
+                    source_start=0.0,
+                    source_end=real_dur,
+                    timeline_position=current_pos,
+                    media_type=media_type,
+                )
+
+            track.clips.append(new_clip)
+            clip_w = self.timeline_view.add_clip(
+                track_index=target_track_index,
+                file_path=fp,
+                timeline_position=current_pos,
+                duration=real_dur,
+                clip_id=new_clip.id,
+            )
+            if clip_w:
+                self._load_thumbnails_async(clip_w, fp, new_clip.source_start, real_dur)
+
+            current_pos += real_dur
+
+        self.timeline_view.set_max_duration(self.get_max_timeline_duration())
+        self._render_current_frame(force=True)
+
+    @pyqtSlot(list, float)
+    def _on_media_duration_changed(self, file_paths: List[str], duration: float) -> None:
+        """Updates end duration for any active timeline clip matching selected files without altering playback speed."""
+        if duration <= 0:
+            return
+
+        modified = False
+        if self.selected_clip_widget and hasattr(self.selected_clip_widget, "clip_id"):
+            cw = self.selected_clip_widget
+            if cw.file_path in file_paths:
+                for track in self.project.tracks:
+                    clip = track.find_clip_by_id(cw.clip_id)
+                    if clip:
+                        if clip.is_image:
+                            clip.image_duration = duration
+                        else:
+                            clip.source_end = clip.source_start + duration
+                            clip.playback_duration = None
+                        modified = True
+
+        if modified:
+            self._rebuild_timeline_widgets()
 
     @pyqtSlot(float)
     def _on_timeline_seek(self, time_sec: float) -> None:

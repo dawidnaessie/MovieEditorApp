@@ -156,7 +156,7 @@ class PlayerView(QWidget):
         screen_layout = QVBoxLayout(self.screen_container)
         screen_layout.setContentsMargins(2, 2, 2, 2)
 
-        self.screen = QLabel("AI Video Preview")
+        self.screen = QLabel("Video Preview")
         self.screen.setObjectName("ScreenLabel")
         self.screen.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.screen.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)

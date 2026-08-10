@@ -146,6 +146,20 @@ class Track:
 
         return True
 
+    def get_track_duration(self) -> float:
+        """Calculates the maximum end timestamp of all clips on this track.
+
+        Returns:
+            float: Total track duration in seconds (0.0 if empty).
+        """
+        if not self.clips:
+            return 0.0
+        return max(c.timeline_position + c.duration for c in self.clips)
+
+    def get_duration(self) -> float:
+        """Alias for get_track_duration."""
+        return self.get_track_duration()
+
     def to_dict(self) -> Dict[str, Any]:
         """Serializes the Track model to a JSON-compatible dictionary.
 

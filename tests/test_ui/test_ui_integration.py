@@ -360,4 +360,114 @@ def test_cross_track_clip_moving_between_video1_and_video2(main_window):
     assert part2.timeline_position == 12.0
 
 
+def test_media_pool_custom_length_controls(main_window, tmp_path):
+    """Validates selecting videos on the left side, setting custom length (e.g. 0.2s), and normal 1.0x playback speed."""
+    mp = main_window.media_pool_view
+    mp.list_widget.clear()
+    mp.custom_durations.clear()
+    main_window._load_thumbnails_async = lambda *args, **kwargs: None
+    import numpy as np
+    main_window.preview_engine.get_project_frame = lambda *args, **kwargs: np.zeros((100, 100, 3), dtype=np.uint8)
+
+    fake_file1 = str(tmp_path / "vid1.mp4")
+    fake_file2 = str(tmp_path / "vid2.mp4")
+    with open(fake_file1, "wb") as f:
+        f.write(b"0" * 100)
+    with open(fake_file2, "wb") as f:
+        f.write(b"0" * 100)
+
+    mp.add_media_item(fake_file1)
+    mp.add_media_item(fake_file2)
+
+    assert mp.list_widget.count() == 2
+
+    # 1. Select video 1 and set custom length to 0.2s using spinbox
+    mp.list_widget.item(0).setSelected(True)
+    mp.list_widget.item(1).setSelected(False)
+    mp.spin_length.setValue(0.20)
+    mp.btn_apply_length.click()
+
+    assert mp.get_custom_duration(fake_file1) == pytest.approx(0.20)
+    assert mp.get_custom_duration(fake_file2) is None
+    assert "0.20s" in mp.list_widget.item(0).text()
+
+    # 2. Select both videos and apply 0.5s preset
+    mp.list_widget.item(0).setSelected(True)
+    mp.list_widget.item(1).setSelected(True)
+    mp._on_preset_clicked(0.50)
+
+    assert mp.get_custom_duration(fake_file1) == pytest.approx(0.50)
+    assert mp.get_custom_duration(fake_file2) == pytest.approx(0.50)
+    assert "0.50s" in mp.list_widget.item(0).text()
+    assert "0.50s" in mp.list_widget.item(1).text()
+
+    # 3. Drop video onto timeline track with mock duration and verify it ends after 0.5s at 1.0x speed
+    main_window.project.tracks[0].clips.clear()
+    # Mock media duration to 10.0s
+    main_window.preview_engine.get_media_duration = lambda path: 10.0
+
+    main_window._on_clip_dropped(fake_file1, track_index=0, timeline_pos=0.0)
+    assert len(main_window.project.tracks[0].clips) == 1
+    clip = main_window.project.tracks[0].clips[0]
+    assert clip.duration == pytest.approx(0.50)
+    assert clip.source_start == 0.0
+    assert clip.source_end == pytest.approx(0.50)
+    assert clip.playback_duration is None
+    assert clip.speed == pytest.approx(1.0)
+
+    # 4. Reset duration back to original
+    mp.list_widget.item(0).setSelected(True)
+    mp.list_widget.item(1).setSelected(True)
+    mp._on_reset_clicked()
+    assert mp.get_custom_duration(fake_file1) is None
+    assert mp.get_custom_duration(fake_file2) is None
+
+
+def test_media_pool_batch_insert_to_timeline(main_window, tmp_path):
+    """Validates multi-selecting videos on the left side and batch inserting them onto the timeline at 0.2s each."""
+    mp = main_window.media_pool_view
+    mp.list_widget.clear()
+    mp.custom_durations.clear()
+    main_window._load_thumbnails_async = lambda *args, **kwargs: None
+    import numpy as np
+    main_window.preview_engine.get_project_frame = lambda *args, **kwargs: np.zeros((100, 100, 3), dtype=np.uint8)
+
+    f1 = str(tmp_path / "clip_a.mp4")
+    f2 = str(tmp_path / "clip_b.mp4")
+    with open(f1, "wb") as f:
+        f.write(b"0" * 100)
+    with open(f2, "wb") as f:
+        f.write(b"0" * 100)
+
+    mp.add_media_item(f1)
+    mp.add_media_item(f2)
+
+    main_window.project.tracks[0].clips.clear()
+    main_window.preview_engine.get_media_duration = lambda path: 60.0
+
+    # Select both and insert at 0.2s each
+    mp.list_widget.item(0).setSelected(True)
+    mp.list_widget.item(1).setSelected(True)
+    mp.spin_length.setValue(0.20)
+    mp.btn_insert.click()
+
+    # Verify both clips added sequentially on Track 1
+    clips = main_window.project.tracks[0].clips
+    assert len(clips) == 2
+    assert clips[0].file_path == f1
+    assert clips[0].timeline_position == pytest.approx(0.0)
+    assert clips[0].duration == pytest.approx(0.20)
+    assert clips[0].source_end == pytest.approx(0.20)
+    assert clips[0].speed == pytest.approx(1.0)
+
+    assert clips[1].file_path == f2
+    assert clips[1].timeline_position == pytest.approx(0.20)
+    assert clips[1].duration == pytest.approx(0.20)
+    assert clips[1].source_end == pytest.approx(0.20)
+    assert clips[1].speed == pytest.approx(1.0)
+
+    assert main_window.get_max_timeline_duration() == pytest.approx(0.40)
+
+
+
 
