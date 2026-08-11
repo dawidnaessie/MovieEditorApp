@@ -82,7 +82,8 @@ class PreviewEngine:
 
         # Handle static image files directly via PIL
         from models.clip import detect_media_type
-        if detect_media_type(file_path) == "image" and os.path.exists(file_path):
+        m_type = detect_media_type(file_path)
+        if m_type == "image" and os.path.exists(file_path):
             try:
                 with Image.open(file_path) as img:
                     w, h = img.size
@@ -91,6 +92,19 @@ class PreviewEngine:
                     return info
             except Exception as e:
                 print(f"Engine Warning: Failed to read image metadata for {file_path}: {e}")
+
+        # Handle pure audio files directly via AudioFileClip
+        if m_type == "audio" and os.path.exists(file_path):
+            try:
+                from moviepy import AudioFileClip
+                a_clip = AudioFileClip(file_path)
+                dur = float(getattr(a_clip, "duration", 0.0) or 0.0)
+                a_clip.close()
+                info = {"duration": dur, "fps": 30.0, "size": [0, 0]}
+                self._metadata_cache[file_path] = info
+                return info
+            except Exception as e:
+                print(f"Engine Warning: Failed to read audio metadata for {file_path}: {e}")
 
         media = self._get_media(file_path)
         if media:
@@ -416,10 +430,15 @@ class PreviewEngine:
                 return self._audio_cache[file_path]
 
         audio_arr: Optional[np.ndarray] = None
-        media = self._get_media(file_path)
-        if media is not None and getattr(media, "audio", None) is not None:
+        from models.clip import detect_media_type
+        m_type = detect_media_type(file_path)
+
+        if m_type == "audio":
             try:
-                raw_sound = media.audio.to_soundarray(fps=sample_rate)
+                from moviepy import AudioFileClip
+                a_clip = AudioFileClip(file_path)
+                raw_sound = a_clip.to_soundarray(fps=sample_rate)
+                a_clip.close()
                 if raw_sound is not None and raw_sound.size > 0:
                     if raw_sound.ndim == 1:
                         raw_sound = np.column_stack([raw_sound, raw_sound])
@@ -429,6 +448,20 @@ class PreviewEngine:
             except Exception as e:
                 print(f"Engine Warning: Could not extract audio from {file_path}: {e}")
                 audio_arr = None
+        else:
+            media = self._get_media(file_path)
+            if media is not None and getattr(media, "audio", None) is not None:
+                try:
+                    raw_sound = media.audio.to_soundarray(fps=sample_rate)
+                    if raw_sound is not None and raw_sound.size > 0:
+                        if raw_sound.ndim == 1:
+                            raw_sound = np.column_stack([raw_sound, raw_sound])
+                        elif raw_sound.shape[1] == 1:
+                            raw_sound = np.repeat(raw_sound, 2, axis=1)
+                        audio_arr = raw_sound.astype(np.float32)
+                except Exception as e:
+                    print(f"Engine Warning: Could not extract audio from {file_path}: {e}")
+                    audio_arr = None
 
         with self._lock:
             self._audio_cache[file_path] = audio_arr
@@ -463,6 +496,13 @@ class PreviewEngine:
 
         active_clips = project.find_all_audio_clips_at(start_time, duration)
         for track, clip, overlap_start, overlap_end in active_clips:
+            # Check track mute and volume properties
+            if getattr(track, "is_muted", False):
+                continue
+            track_vol = float(getattr(track, "volume", 1.0))
+            if track_vol <= 0.0:
+                continue
+
             audio_arr = self.get_media_audio_array(clip.file_path, sample_rate=sample_rate)
             if audio_arr is None or audio_arr.shape[0] == 0:
                 continue
@@ -482,7 +522,10 @@ class PreviewEngine:
 
             chunk_len = dst_end_idx - dst_start_idx
             if chunk_len > 0:
-                composite[dst_start_idx:dst_end_idx] += src_chunk[:chunk_len]
+                if abs(track_vol - 1.0) < 1e-4:
+                    composite[dst_start_idx:dst_end_idx] += src_chunk[:chunk_len]
+                else:
+                    composite[dst_start_idx:dst_end_idx] += src_chunk[:chunk_len] * track_vol
 
         np.clip(composite, -1.0, 1.0, out=composite)
         pcm16 = (composite * 32767.0).astype(np.int16)

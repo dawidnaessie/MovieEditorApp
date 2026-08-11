@@ -217,3 +217,55 @@ def test_preview_engine_slow_motion_frame_extraction(dummy_video_file):
     finally:
         engine.close()
 
+
+def test_preview_engine_track_volume_and_muting(tmp_path):
+    """Validates track volume scaling and track muting in audio PCM mixing."""
+    import wave
+
+    wav_path = os.path.join(str(tmp_path), "test_tone.wav")
+    sample_rate = 44100
+    duration = 2.0
+    t = np.linspace(0, duration, int(sample_rate * duration), endpoint=False)
+    sine_wave = (np.sin(2 * np.pi * 440 * t) * 30000).astype(np.int16)
+    stereo_interleaved = np.column_stack([sine_wave, sine_wave]).flatten()
+
+    with wave.open(wav_path, "w") as wf:
+        wf.setnchannels(2)
+        wf.setsampwidth(2)
+        wf.setframerate(sample_rate)
+        wf.writeframes(stereo_interleaved.tobytes())
+
+    engine = PreviewEngine()
+    try:
+        project = Project(name="Track Volume Test")
+        a1 = project.add_track("Audio 1", track_type="audio")
+        a1.clips.append(Clip(file_path=wav_path, name="Tone", source_start=0.0, source_end=1.0, timeline_position=0.0))
+
+        # 1. Full volume (1.0)
+        a1.set_volume(1.0)
+        pcm_100 = engine.get_project_audio_pcm(project, start_time=0.0, duration=0.5, sample_rate=sample_rate)
+        arr_100 = np.frombuffer(pcm_100, dtype=np.int16)
+        max_100 = float(np.max(np.abs(arr_100)))
+        assert max_100 > 25000
+
+        # 2. Half volume (0.5)
+        a1.set_volume(0.5)
+        pcm_50 = engine.get_project_audio_pcm(project, start_time=0.0, duration=0.5, sample_rate=sample_rate)
+        arr_50 = np.frombuffer(pcm_50, dtype=np.int16)
+        max_50 = float(np.max(np.abs(arr_50)))
+        assert max_50 == pytest.approx(max_100 * 0.5, rel=1e-2)
+
+        # 3. Muted track (is_muted = True)
+        a1.set_muted(True)
+        pcm_muted = engine.get_project_audio_pcm(project, start_time=0.0, duration=0.5, sample_rate=sample_rate)
+        arr_muted = np.frombuffer(pcm_muted, dtype=np.int16)
+        assert np.max(np.abs(arr_muted)) == 0
+
+        # 4. Unmute and check volume restoration
+        a1.set_muted(False)
+        pcm_restored = engine.get_project_audio_pcm(project, start_time=0.0, duration=0.5, sample_rate=sample_rate)
+        arr_restored = np.frombuffer(pcm_restored, dtype=np.int16)
+        assert np.max(np.abs(arr_restored)) == pytest.approx(max_50, rel=1e-2)
+    finally:
+        engine.close()
+

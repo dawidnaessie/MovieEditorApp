@@ -41,8 +41,10 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMenu,
+    QPushButton,
     QScrollArea,
     QSizePolicy,
+    QSlider,
     QVBoxLayout,
     QWidget,
 )
@@ -51,7 +53,7 @@ from .dialogs import SetTimeDialog
 from .toolbar_view import ToolbarView
 
 # Standard timeline constants
-TRACK_HEADER_WIDTH: int = 130
+TRACK_HEADER_WIDTH: int = 190
 DEFAULT_PIXELS_PER_SECOND: float = 25.0
 MIN_PIXELS_PER_SECOND: float = 2.0
 MAX_PIXELS_PER_SECOND: float = 150.0
@@ -642,10 +644,27 @@ class TrackLaneWidget(QWidget):
 
 
 class TrackHeaderWidget(QFrame):
-    """Solid, non-transparent track header frame preventing any clipping or background bleeding."""
+    """Solid, non-transparent track header frame with volume slider and mute controls."""
 
-    def __init__(self, track_name: str, track_index: int, parent: Optional[QWidget] = None):
+    track_volume_changed = pyqtSignal(str, float)
+    track_mute_toggled = pyqtSignal(str, bool)
+
+    def __init__(
+        self,
+        track_name: str,
+        track_index: int = 0,
+        track_id: str = "",
+        volume: float = 1.0,
+        is_muted: bool = False,
+        parent: Optional[QWidget] = None,
+    ):
         super().__init__(parent)
+        self.track_name = track_name
+        self.track_index = track_index
+        self.track_id = track_id
+        self.volume = max(0.0, float(volume))
+        self.is_muted = bool(is_muted)
+
         self.setFixedWidth(TRACK_HEADER_WIDTH)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setObjectName("TrackHeaderWidget")
@@ -666,33 +685,74 @@ class TrackHeaderWidget(QFrame):
                 background-color: {badge_bg};
                 border: 1px solid {badge_border};
                 border-radius: 4px;
-                padding: 3px 6px;
+                padding: 2px 5px;
             }}
             QLabel.track-title {{
                 color: #f5f3ff;
                 font-weight: bold;
-                font-size: 11px;
+                font-size: 10px;
             }}
-            QLabel.track-tag {{
-                color: {badge_color};
+            QPushButton.mute-btn {{
+                background-color: #26164d;
+                color: #c084fc;
+                border: 1px solid #4c3788;
+                border-radius: 3px;
+                font-weight: bold;
                 font-size: 9px;
-                font-weight: 600;
+                padding: 0px;
+            }}
+            QPushButton.mute-btn:hover {{
+                background-color: #3b2d70;
+                color: #ffffff;
+                border-color: #7c3aed;
+            }}
+            QPushButton.mute-btn:checked {{
+                background-color: #ef4444;
+                color: #ffffff;
+                border: 1px solid #f87171;
+            }}
+            QPushButton.mute-btn:checked:hover {{
+                background-color: #dc2626;
+            }}
+            QSlider.track-vol-slider::groove:horizontal {{
+                height: 4px;
+                background: #271f4d;
+                border-radius: 2px;
+            }}
+            QSlider.track-vol-slider::sub-page:horizontal {{
+                background: #7c3aed;
+                border-radius: 2px;
+            }}
+            QSlider.track-vol-slider::handle:horizontal {{
+                background: #c084fc;
+                border: 1px solid #f5f3ff;
+                width: 10px;
+                margin-top: -3px;
+                margin-bottom: -3px;
+                border-radius: 5px;
+            }}
+            QSlider.track-vol-slider::handle:horizontal:hover {{
+                background: #d946ef;
             }}
         """)
 
-        h_layout = QHBoxLayout(self)
-        h_layout.setContentsMargins(8, 6, 8, 6)
-        h_layout.setSpacing(6)
+        v_layout = QVBoxLayout(self)
+        v_layout.setContentsMargins(6, 4, 6, 4)
+        v_layout.setSpacing(2)
 
-        # Track badge container
+        # 1. Top row: Badge and Mute button
+        top_layout = QHBoxLayout()
+        top_layout.setContentsMargins(0, 0, 0, 0)
+        top_layout.setSpacing(4)
+
         badge = QFrame()
         badge.setProperty("class", "badge-pill")
         b_layout = QHBoxLayout(badge)
-        b_layout.setContentsMargins(4, 2, 4, 2)
+        b_layout.setContentsMargins(4, 1, 4, 1)
         b_layout.setSpacing(4)
 
         lbl_icon = QLabel(icon)
-        lbl_icon.setStyleSheet("font-size: 12px; background: transparent;")
+        lbl_icon.setStyleSheet("font-size: 11px; background: transparent;")
         b_layout.addWidget(lbl_icon)
 
         lbl_name = QLabel(track_name)
@@ -700,8 +760,70 @@ class TrackHeaderWidget(QFrame):
         lbl_name.setStyleSheet("background: transparent;")
         b_layout.addWidget(lbl_name)
 
-        h_layout.addWidget(badge)
-        h_layout.addStretch()
+        top_layout.addWidget(badge)
+        top_layout.addStretch()
+
+        self.btn_mute = QPushButton("M")
+        self.btn_mute.setProperty("class", "mute-btn")
+        self.btn_mute.setCheckable(True)
+        self.btn_mute.setChecked(self.is_muted)
+        self.btn_mute.setFixedSize(22, 20)
+        self.btn_mute.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_mute.setToolTip("Mute Track" if not self.is_muted else "Unmute Track")
+        self.btn_mute.toggled.connect(self._on_mute_toggled)
+        top_layout.addWidget(self.btn_mute)
+
+        v_layout.addLayout(top_layout)
+
+        # 2. Bottom row: Volume slider & readout
+        bottom_layout = QHBoxLayout()
+        bottom_layout.setContentsMargins(0, 0, 0, 0)
+        bottom_layout.setSpacing(4)
+
+        self.vol_slider = QSlider(Qt.Orientation.Horizontal)
+        self.vol_slider.setProperty("class", "track-vol-slider")
+        self.vol_slider.setRange(0, 200)
+        init_val = int(round(self.volume * 100))
+        self.vol_slider.setValue(init_val)
+        self.vol_slider.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.vol_slider.setToolTip(f"Volume: {init_val}%")
+        self.vol_slider.valueChanged.connect(self._on_volume_slider_changed)
+        bottom_layout.addWidget(self.vol_slider, stretch=1)
+
+        self.lbl_vol = QLabel(f"{init_val}%")
+        self.lbl_vol.setStyleSheet("color: #c084fc; font-size: 8px; font-weight: bold; background: transparent;")
+        self.lbl_vol.setFixedWidth(28)
+        self.lbl_vol.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        bottom_layout.addWidget(self.lbl_vol)
+
+        v_layout.addLayout(bottom_layout)
+
+    def _on_mute_toggled(self, checked: bool) -> None:
+        self.is_muted = checked
+        self.btn_mute.setToolTip("Unmute Track" if checked else "Mute Track")
+        self.track_mute_toggled.emit(self.track_id, self.is_muted)
+
+    def _on_volume_slider_changed(self, value: int) -> None:
+        self.volume = value / 100.0
+        self.lbl_vol.setText(f"{value}%")
+        self.vol_slider.setToolTip(f"Volume: {value}%")
+        self.track_volume_changed.emit(self.track_id, self.volume)
+
+    def set_volume(self, volume: float) -> None:
+        self.volume = max(0.0, float(volume))
+        val = max(0, min(200, int(round(self.volume * 100))))
+        self.vol_slider.blockSignals(True)
+        self.vol_slider.setValue(val)
+        self.vol_slider.blockSignals(False)
+        self.lbl_vol.setText(f"{val}%")
+        self.vol_slider.setToolTip(f"Volume: {val}%")
+
+    def set_muted(self, is_muted: bool) -> None:
+        self.is_muted = bool(is_muted)
+        self.btn_mute.blockSignals(True)
+        self.btn_mute.setChecked(self.is_muted)
+        self.btn_mute.blockSignals(False)
+        self.btn_mute.setToolTip("Unmute Track" if self.is_muted else "Mute Track")
 
 
 class TrackStripWidget(QWidget):
@@ -714,17 +836,23 @@ class TrackStripWidget(QWidget):
     trim_requested = pyqtSignal(object, float, bool)
     clip_moved = pyqtSignal(object, float, int)
     clip_time_updated = pyqtSignal(str, float, float)
+    track_volume_changed = pyqtSignal(str, float)
+    track_mute_toggled = pyqtSignal(str, bool)
 
     def __init__(
         self,
         track_name: str,
         track_index: int = 0,
+        track_id: str = "",
+        volume: float = 1.0,
+        is_muted: bool = False,
         pixels_per_second: float = DEFAULT_PIXELS_PER_SECOND,
         height: int = 64,
     ):
         super().__init__()
         self.track_name = track_name
         self.track_index = track_index
+        self.track_id = track_id
         self.pixels_per_second = pixels_per_second
         self.setFixedHeight(height)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
@@ -733,8 +861,17 @@ class TrackStripWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # 1. Solid Track Header (prevents any clipping or transparency issues)
-        self.header = TrackHeaderWidget(track_name=track_name, track_index=track_index, parent=self)
+        # 1. Solid Track Header with Volume & Mute Controls
+        self.header = TrackHeaderWidget(
+            track_name=track_name,
+            track_index=track_index,
+            track_id=track_id,
+            volume=volume,
+            is_muted=is_muted,
+            parent=self,
+        )
+        self.header.track_volume_changed.connect(self.track_volume_changed.emit)
+        self.header.track_mute_toggled.connect(self.track_mute_toggled.emit)
         layout.addWidget(self.header)
 
         # 2. Droppable Track Lane
@@ -803,6 +940,8 @@ class TimelineCanvas(QWidget):
     trim_requested = pyqtSignal(object, float, bool)
     clip_moved = pyqtSignal(object, float, int)
     clip_time_updated = pyqtSignal(str, float, float)
+    track_volume_changed = pyqtSignal(str, float)
+    track_mute_toggled = pyqtSignal(str, bool)
     zoom_changed = pyqtSignal(float)
 
     def __init__(
@@ -934,11 +1073,20 @@ class TimelineCanvas(QWidget):
             self.updateGeometry()
             self.update()
 
-    def add_track_strip(self, track_name: str) -> TrackStripWidget:
+    def add_track_strip(
+        self,
+        track_name: str,
+        track_id: str = "",
+        volume: float = 1.0,
+        is_muted: bool = False,
+    ) -> TrackStripWidget:
         track_index = len(self.track_strips)
         strip = TrackStripWidget(
             track_name=track_name,
             track_index=track_index,
+            track_id=track_id,
+            volume=volume,
+            is_muted=is_muted,
             pixels_per_second=self.pixels_per_second,
             height=64,
         )
@@ -949,6 +1097,8 @@ class TimelineCanvas(QWidget):
         strip.trim_requested.connect(self.trim_requested.emit)
         strip.clip_moved.connect(self.clip_moved.emit)
         strip.clip_time_updated.connect(self.clip_time_updated.emit)
+        strip.track_volume_changed.connect(self.track_volume_changed.emit)
+        strip.track_mute_toggled.connect(self.track_mute_toggled.emit)
         strip.lane.set_active_tool(self.active_tool)
 
         self.track_strips.append(strip)
@@ -1126,6 +1276,8 @@ class TimelineView(QWidget):
     trim_requested = pyqtSignal(object, float, bool)
     clip_moved = pyqtSignal(object, float, int)
     clip_time_updated = pyqtSignal(str, float, float)
+    track_volume_changed = pyqtSignal(str, float)
+    track_mute_toggled = pyqtSignal(str, bool)
     split_at_playhead_requested = pyqtSignal()
     tool_changed = pyqtSignal(str)
 
@@ -1232,6 +1384,8 @@ class TimelineView(QWidget):
         self.canvas.trim_requested.connect(self.trim_requested.emit)
         self.canvas.clip_moved.connect(self.clip_moved.emit)
         self.canvas.clip_time_updated.connect(self.clip_time_updated.emit)
+        self.canvas.track_volume_changed.connect(self.track_volume_changed.emit)
+        self.canvas.track_mute_toggled.connect(self.track_mute_toggled.emit)
         self.canvas.zoom_changed.connect(self.toolbar.set_zoom_value)
 
         # Default track strips
@@ -1285,8 +1439,19 @@ class TimelineView(QWidget):
         if self.canvas._selected_widget:
             self.clip_delete_requested.emit(self.canvas._selected_widget)
 
-    def add_track(self, track_name: str) -> TrackStripWidget:
-        return self.canvas.add_track_strip(track_name)
+    def add_track(
+        self,
+        track_name: str,
+        track_id: str = "",
+        volume: float = 1.0,
+        is_muted: bool = False,
+    ) -> TrackStripWidget:
+        return self.canvas.add_track_strip(
+            track_name,
+            track_id=track_id,
+            volume=volume,
+            is_muted=is_muted,
+        )
 
     def add_clip(
         self,

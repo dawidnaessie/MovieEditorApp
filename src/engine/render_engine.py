@@ -199,6 +199,27 @@ class RenderEngine:
                                     except Exception:
                                         pass
 
+                            # Apply track volume / mute to video audio if present
+                            if getattr(segment, "audio", None) is not None:
+                                if getattr(track, "is_muted", False) or getattr(track, "volume", 1.0) <= 0.0:
+                                    if hasattr(segment, "without_audio"):
+                                        segment = segment.without_audio()
+                                    else:
+                                        segment.audio = None
+                                elif abs(float(getattr(track, "volume", 1.0)) - 1.0) > 1e-4:
+                                    vol = float(track.volume)
+                                    try:
+                                        from moviepy.audio.fx import MultiplyVolume
+                                        segment = segment.with_audio(segment.audio.with_effects([MultiplyVolume(vol)]))
+                                    except Exception:
+                                        try:
+                                            if hasattr(segment.audio, "with_volume_scaled"):
+                                                segment = segment.with_audio(segment.audio.with_volume_scaled(vol))
+                                            elif hasattr(segment.audio, "volumex"):
+                                                segment = segment.with_audio(segment.audio.volumex(vol))
+                                        except Exception:
+                                            pass
+
                             segment = _apply_clip_timing(segment, clip_model.timeline_position, clip_model.duration)
                             if hasattr(segment, "resized"):
                                 segment = segment.resized(target_resolution)
@@ -226,6 +247,33 @@ class RenderEngine:
                             else:
                                 a_seg = a_clip
 
+                            # Apply track volume / mute
+                            if getattr(track, "is_muted", False) or getattr(track, "volume", 1.0) <= 0.0:
+                                try:
+                                    from moviepy.audio.fx import MultiplyVolume
+                                    a_seg = a_seg.with_effects([MultiplyVolume(0.0)])
+                                except Exception:
+                                    try:
+                                        if hasattr(a_seg, "with_volume_scaled"):
+                                            a_seg = a_seg.with_volume_scaled(0.0)
+                                        elif hasattr(a_seg, "volumex"):
+                                            a_seg = a_seg.volumex(0.0)
+                                    except Exception:
+                                        pass
+                            elif abs(float(getattr(track, "volume", 1.0)) - 1.0) > 1e-4:
+                                vol = float(track.volume)
+                                try:
+                                    from moviepy.audio.fx import MultiplyVolume
+                                    a_seg = a_seg.with_effects([MultiplyVolume(vol)])
+                                except Exception:
+                                    try:
+                                        if hasattr(a_seg, "with_volume_scaled"):
+                                            a_seg = a_seg.with_volume_scaled(vol)
+                                        elif hasattr(a_seg, "volumex"):
+                                            a_seg = a_seg.volumex(vol)
+                                    except Exception:
+                                        pass
+
                             a_seg = _apply_clip_timing(a_seg, clip_model.timeline_position, clip_model.duration)
                             audio_clips.append(a_seg)
                             loaded_handles.append(a_seg)
@@ -238,7 +286,10 @@ class RenderEngine:
             loaded_handles.append(composite)
 
             if audio_clips:
-                composite_audio = CompositeAudioClip(audio_clips)
+                all_audios = list(audio_clips)
+                if composite.audio is not None:
+                    all_audios.insert(0, composite.audio)
+                composite_audio = CompositeAudioClip(all_audios)
                 composite_audio = _apply_clip_timing(composite_audio, 0.0, total_duration)
                 if hasattr(composite, "with_audio"):
                     composite = composite.with_audio(composite_audio)

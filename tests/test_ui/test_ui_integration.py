@@ -541,3 +541,80 @@ def test_fullscreen_and_media_pool_proportions(main_window):
     assert not mp.length_frame.isHidden()
     assert main_window.minimumWidth() >= 800
     assert main_window.minimumHeight() >= 500
+
+
+def test_track_header_volume_and_mute_controls(qapp):
+    """Validates TrackHeaderWidget volume slider and mute button interactions and signal emissions."""
+    from ui.timeline_view import TrackHeaderWidget
+
+    header = TrackHeaderWidget(
+        track_name="Audio 1",
+        track_index=2,
+        track_id="trk-12345",
+        volume=1.0,
+        is_muted=False,
+    )
+
+    assert header.track_id == "trk-12345"
+    assert header.volume == 1.0
+    assert header.is_muted is False
+    assert header.btn_mute.isChecked() is False
+    assert header.vol_slider.value() == 100
+    assert header.lbl_vol.text() == "100%"
+
+    vol_signals = []
+    mute_signals = []
+    header.track_volume_changed.connect(lambda tid, vol: vol_signals.append((tid, vol)))
+    header.track_mute_toggled.connect(lambda tid, muted: mute_signals.append((tid, muted)))
+
+    # 1. Move volume slider to 65% (0.65)
+    header.vol_slider.setValue(65)
+    assert len(vol_signals) == 1
+    assert vol_signals[-1][0] == "trk-12345"
+    assert vol_signals[-1][1] == pytest.approx(0.65, abs=1e-3)
+    assert isinstance(vol_signals[-1][1], float)
+    assert header.lbl_vol.text() == "65%"
+
+    # 2. Toggle mute button
+    header.btn_mute.click()
+    assert len(mute_signals) == 1
+    assert mute_signals[-1] == ("trk-12345", True)
+    assert isinstance(mute_signals[-1][1], bool)
+    assert header.is_muted is True
+    assert header.btn_mute.isChecked() is True
+
+    # 3. Toggle mute button back
+    header.btn_mute.click()
+    assert len(mute_signals) == 2
+    assert mute_signals[-1] == ("trk-12345", False)
+    assert header.is_muted is False
+
+    # 4. Programmatic setters
+    header.set_volume(1.8)
+    assert header.vol_slider.value() == 180
+    assert header.lbl_vol.text() == "180%"
+
+    header.set_muted(True)
+    assert header.btn_mute.isChecked() is True
+
+
+def test_main_window_track_volume_and_mute_integration(main_window):
+    """Validates end-to-end signal flow from track headers to Project model state in MainWindow."""
+    strip_v1 = main_window.timeline_view.canvas.track_strips[0]
+    track_v1 = main_window.project.tracks[0]
+
+    assert strip_v1.track_id == track_v1.id
+    assert track_v1.volume == 1.0
+    assert track_v1.is_muted is False
+
+    # 1. Change volume slider on Video 1 header
+    strip_v1.header.vol_slider.setValue(40)
+    assert track_v1.volume == pytest.approx(0.4, abs=1e-3)
+
+    # 2. Click mute on Video 1 header
+    strip_v1.header.btn_mute.click()
+    assert track_v1.is_muted is True
+
+    # 3. Click unmute on Video 1 header
+    strip_v1.header.btn_mute.click()
+    assert track_v1.is_muted is False

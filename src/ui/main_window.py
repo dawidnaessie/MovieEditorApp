@@ -296,6 +296,17 @@ class MainWindow(QMainWindow):
         self.timeline_view.clip_moved.connect(self._on_clip_moved)
         self.timeline_view.clip_time_updated.connect(self._on_clip_time_updated)
         self.timeline_view.split_at_playhead_requested.connect(self._on_split_at_playhead)
+        self.timeline_view.track_volume_changed.connect(self._on_track_volume_changed)
+        self.timeline_view.track_mute_toggled.connect(self._on_track_mute_toggled)
+
+        # Sync initial track strips with project model track IDs & volume/mute state
+        for idx, track in enumerate(self.project.tracks):
+            if idx < len(self.timeline_view.canvas.track_strips):
+                strip = self.timeline_view.canvas.track_strips[idx]
+                strip.track_id = track.id
+                strip.header.track_id = track.id
+                strip.header.set_volume(track.volume)
+                strip.header.set_muted(track.is_muted)
 
         # Sync max timeline boundary with initial project state
         self.timeline_view.set_max_duration(self.get_max_timeline_duration())
@@ -553,6 +564,12 @@ class MainWindow(QMainWindow):
 
         # Re-add matching clips from model
         for t_idx, track in enumerate(self.project.tracks):
+            if t_idx < len(self.timeline_view.canvas.track_strips):
+                strip = self.timeline_view.canvas.track_strips[t_idx]
+                strip.track_id = track.id
+                strip.header.track_id = track.id
+                strip.header.set_volume(track.volume)
+                strip.header.set_muted(track.is_muted)
             for clip in track.clips:
                 clip_w = self.timeline_view.add_clip(
                     track_index=t_idx,
@@ -744,6 +761,26 @@ class MainWindow(QMainWindow):
     def _on_mute_toggled(self, is_muted: bool) -> None:
         self.is_muted = is_muted
         self.audio_sink.setVolume(0.0 if is_muted else self.volume)
+
+    @pyqtSlot(str, float)
+    def _on_track_volume_changed(self, track_id: str, new_volume: float) -> None:
+        """Updates track volume in the data model and refreshes audio playback."""
+        for track in self.project.tracks:
+            if track.id == track_id:
+                track.set_volume(new_volume)
+                break
+        if self._is_playing:
+            self._start_audio()
+
+    @pyqtSlot(str, bool)
+    def _on_track_mute_toggled(self, track_id: str, is_muted: bool) -> None:
+        """Toggles track muting in the data model and refreshes audio playback."""
+        for track in self.project.tracks:
+            if track.id == track_id:
+                track.set_muted(is_muted)
+                break
+        if self._is_playing:
+            self._start_audio()
 
     def _start_audio(self) -> None:
         self._stop_audio()

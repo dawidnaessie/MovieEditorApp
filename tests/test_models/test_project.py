@@ -127,9 +127,11 @@ def test_project_split_clip_and_lookups():
 
 
 def test_project_json_round_trip():
-    """Validates full JSON serialization and deserialization."""
+    """Validates full JSON serialization and deserialization including track volume and mute states."""
     proj = Project(name="JSON RoundTrip", resolution=(3840, 2160), fps=60.0)
     v1 = proj.add_track("Video 1")
+    v1.set_volume(0.8)
+    v1.set_muted(True)
     v1.clips.append(Clip(file_path="shot1.mp4", name="Shot 1", source_start=1.0, source_end=6.0, timeline_position=0.0))
 
     json_str = proj.to_json()
@@ -141,6 +143,8 @@ def test_project_json_round_trip():
     assert restored.fps == 60.0
     assert restored.id == proj.id
     assert len(restored.tracks) == 1
+    assert restored.tracks[0].volume == 0.8
+    assert restored.tracks[0].is_muted is True
     assert len(restored.tracks[0].clips) == 1
     assert restored.tracks[0].clips[0].name == "Shot 1"
 

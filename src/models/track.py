@@ -17,12 +17,42 @@ class Track:
         track_type (str): Type of track media content ('video' or 'audio'). Defaults to 'video'.
         clips (List[Clip]): Ordered list of Clip objects placed on this track.
         id (str): Unique UUID identifier for the track.
+        volume (float): Audio gain multiplier for all clips on this track (1.0 = 100%). Defaults to 1.0.
+        is_muted (bool): Whether audio playback from this track is silenced. Defaults to False.
     """
 
     name: str
     track_type: str = "video"
     clips: List[Clip] = field(default_factory=list)
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    volume: float = 1.0
+    is_muted: bool = False
+
+    def set_volume(self, level: float) -> None:
+        """Sets the audio volume level for this track.
+
+        Args:
+            level (float): Gain multiplier (e.g. 0.5 for 50%, 1.0 for 100%, 2.0 for 200%).
+                Clamped to a minimum of 0.0.
+        """
+        self.volume = max(0.0, float(level))
+
+    def toggle_mute(self) -> bool:
+        """Toggles the mute state of this track.
+
+        Returns:
+            bool: The new is_muted state after toggling.
+        """
+        self.is_muted = not self.is_muted
+        return self.is_muted
+
+    def set_muted(self, muted: bool) -> None:
+        """Explicitly sets the mute state of this track.
+
+        Args:
+            muted (bool): True to mute audio output, False to unmute.
+        """
+        self.is_muted = bool(muted)
 
     def find_clip_by_id(self, clip_id: str) -> Optional[Clip]:
         """Finds and returns a Clip on this track matching the given UUID."""
@@ -171,6 +201,8 @@ class Track:
             "track_type": self.track_type,
             "clips": [c.to_dict() for c in self.clips],
             "id": self.id,
+            "volume": float(self.volume),
+            "is_muted": bool(self.is_muted),
         }
 
     @classmethod
@@ -186,10 +218,14 @@ class Track:
         name = str(data.get("name", "Track"))
         default_type = "audio" if "audio" in name.lower() else "video"
         track_type = str(data.get("track_type", default_type))
+        volume = float(data.get("volume", 1.0))
+        is_muted = bool(data.get("is_muted", False))
         track = cls(
             name=name,
             track_type=track_type,
             id=str(data.get("id", uuid.uuid4())),
+            volume=volume,
+            is_muted=is_muted,
         )
         track.clips = [Clip.from_dict(c) for c in data.get("clips", [])]
         return track

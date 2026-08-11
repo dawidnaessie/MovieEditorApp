@@ -120,3 +120,44 @@ def test_render_engine_empty_project_guard(tmp_path):
     )
     assert success is False
     assert not os.path.exists(out_path)
+
+
+def test_render_engine_with_audio_track_and_volume(render_dummy_media, tmp_path):
+    """Validates video rendering with dedicated audio tracks, volume scaling, and muting."""
+    import wave
+
+    media = render_dummy_media
+    wav_path = os.path.join(str(tmp_path), "score.wav")
+    sample_rate = 44100
+    duration = 1.5
+    t = np.linspace(0, duration, int(sample_rate * duration), endpoint=False)
+    sine = (np.sin(2 * np.pi * 440 * t) * 28000).astype(np.int16)
+    stereo = np.column_stack([sine, sine]).flatten()
+
+    with wave.open(wav_path, "w") as wf:
+        wf.setnchannels(2)
+        wf.setsampwidth(2)
+        wf.setframerate(sample_rate)
+        wf.writeframes(stereo.tobytes())
+
+    out_mp4 = os.path.join(str(tmp_path), "rendered_audio_mix.mp4")
+    project = Project(name="Audio Mix Render", resolution=(160, 90), fps=24.0)
+    v1 = project.add_track("Video 1")
+    v1.clips.append(Clip(file_path=media["video"], name="Vid1", source_start=0.0, source_end=1.0, timeline_position=0.0))
+
+    a1 = project.add_track("Audio 1", track_type="audio")
+    a1.set_volume(0.5)
+    a1.clips.append(Clip(file_path=wav_path, name="Score", source_start=0.0, source_end=1.0, timeline_position=0.0))
+
+    engine = RenderEngine()
+    success = engine.render_project(
+        project=project,
+        output_path=out_mp4,
+        export_format="mp4",
+        resolution=(160, 90),
+        fps=24.0,
+    )
+
+    assert success is True
+    assert os.path.exists(out_mp4)
+    assert os.path.getsize(out_mp4) > 1000

@@ -121,15 +121,47 @@ def test_track_trimming():
     assert clip.get_source_time(16.0) == 4.0 + 8.0  # 12.0s midpoint in source
 
 
+def test_track_volume_and_mute_controls():
+    """Validates default volume, mute state, setting volume, and mute toggling."""
+    track = Track(name="Voiceover", track_type="audio")
+    assert track.volume == 1.0
+    assert track.is_muted is False
+
+    # Setting volume
+    track.set_volume(0.75)
+    assert track.volume == 0.75
+    track.set_volume(1.8)
+    assert track.volume == 1.8
+    track.set_volume(-0.5)  # Clamped to 0.0
+    assert track.volume == 0.0
+
+    # Toggling mute
+    new_state = track.toggle_mute()
+    assert new_state is True
+    assert track.is_muted is True
+
+    new_state = track.toggle_mute()
+    assert new_state is False
+    assert track.is_muted is False
+
+    # Explicit set_muted
+    track.set_muted(True)
+    assert track.is_muted is True
+    track.set_muted(False)
+    assert track.is_muted is False
+
+
 def test_track_serialization_round_trip():
-    """Validates Track serialization to/from dictionary."""
-    track = Track(name="Background Music", track_type="audio")
+    """Validates Track serialization to/from dictionary including volume and is_muted."""
+    track = Track(name="Background Music", track_type="audio", volume=0.6, is_muted=True)
     clip = Clip(file_path="music.mp3", name="Theme", source_start=0.0, source_end=30.0, timeline_position=0.0)
     track.clips.append(clip)
 
     data = track.to_dict()
     assert data["name"] == "Background Music"
     assert data["track_type"] == "audio"
+    assert data["volume"] == 0.6
+    assert data["is_muted"] is True
     assert len(data["clips"]) == 1
     assert data["clips"][0]["name"] == "Theme"
 
@@ -137,6 +169,8 @@ def test_track_serialization_round_trip():
     assert restored.name == track.name
     assert restored.track_type == track.track_type
     assert restored.id == track.id
+    assert restored.volume == 0.6
+    assert restored.is_muted is True
     assert len(restored.clips) == 1
     assert restored.clips[0].name == "Theme"
     assert restored.clips[0].duration == 30.0
