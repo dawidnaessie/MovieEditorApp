@@ -62,6 +62,19 @@ The **Visual Shell**. Built with `PyQt6`, the interface is strictly event-driven
   pip install -e .
   ```
 4. **Run the application:**
-  ```bash
-  python src/main.py
-  ```
+   ```bash
+   python src/main.py
+   ```
+
+---
+
+## 📦 Building Standalone Executable (.exe)
+
+To build a standalone Windows `.exe` without requiring Python on the target machine:
+
+```powershell
+pip install pyinstaller
+pyinstaller --noconfirm --onedir --windowed --name "MovieEditor" --paths "src" src/main.py
+```
+
+For full options (Single-File vs One-Folder, custom icons, GUI builder, troubleshooting), see the [BUILD_EXE.md](BUILD_EXE.md) guide.

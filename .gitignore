@@ -4,6 +4,7 @@
 __pycache__/
 *.py[cod]
 *$py.class
+*.so
 
 # ==========================================
 # Virtual Environments
@@ -12,33 +13,85 @@ __pycache__/
 venv/
 env/
 ENV/
+env.bak/
+venv.bak/
 
 # ==========================================
-# Distribution / Packaging (from pip install -e .)
+# Distribution / Packaging / Executables
 # ==========================================
 build/
 dist/
 *.egg-info/
 .eggs/
+*.egg
+*.manifest
+*.spec
+*.exe
+*.bin
+*.app
+*.pkg
+*.dmg
+*.whl
+*.zip
+*.tar.gz
+develop-eggs/
+downloads/
+eggs/
+parts/
+var/
+sdist/
+pip-wheel-metadata/
 
 # ==========================================
-# Unit Tests / Coverage Reports
+# MoviePy / FFmpeg / Media Temp Files & Exports
+# ==========================================
+*.temp
+*.tmp
+*_TEMP_MP4_subtitles*
+temp-audio.*
+temp_preview*
+exports/
+renders/
+output/
+cache/
+.cache/
+
+# ==========================================
+# Unit Tests / Coverage / Linting
 # ==========================================
 .pytest_cache/
-.coverage
-htmlcov/
+.mypy_cache/
+.ruff_cache/
 .tox/
+.coverage
+.coverage.*
+coverage.xml
+nosetests.xml
+htmlcov/
+*.cover
 
 # ==========================================
-# IDEs and Text Editors
+# IDEs, Text Editors, and AI Tools
 # ==========================================
 .vscode/
 .idea/
+.cursor/
+.agents/
+.gemini/
 *.swp
 *.swo
+*.sublime-workspace
+*.sublime-project
 
 # ==========================================
-# OS Generated Files (Windows / macOS)
+# Environment Variables & Secrets
+# ==========================================
+.env
+.env.*
+!.env.example
+
+# ==========================================
+# OS Generated Files & Logs
 # ==========================================
 .DS_Store
 .DS_Store?
@@ -48,6 +101,9 @@ htmlcov/
 ehthumbs.db
 Thumbs.db
 desktop.ini
+*.log
+*.dmp
+*.stackdump
 
 # ==========================================
 # Project Specific: Large Media Files
