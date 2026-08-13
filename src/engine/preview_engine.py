@@ -11,6 +11,45 @@ from models.clip import Clip
 from models.project import Project
 
 
+def _apply_frame_transform(
+    frame: np.ndarray,
+    rotation: int = 0,
+    flip_horizontal: bool = False,
+    flip_vertical: bool = False,
+) -> np.ndarray:
+    """Applies rotation (clockwise degrees) and horizontal/vertical flips to an RGB frame.
+
+    Args:
+        frame (np.ndarray): RGB array of shape (H, W, 3) with dtype uint8.
+        rotation (int): Clockwise angle in degrees (0, 90, 180, 270). Defaults to 0.
+        flip_horizontal (bool): True to mirror left-to-right. Defaults to False.
+        flip_vertical (bool): True to mirror top-to-bottom. Defaults to False.
+
+    Returns:
+        np.ndarray: C-contiguous transformed RGB array.
+    """
+    if frame is None or frame.size == 0:
+        return frame
+
+    transformed = frame
+    rot = int(rotation) % 360
+    if rot == 90:
+        transformed = np.rot90(transformed, k=3)
+    elif rot == 180:
+        transformed = np.rot90(transformed, k=2)
+    elif rot == 270:
+        transformed = np.rot90(transformed, k=1)
+
+    if flip_horizontal:
+        transformed = np.fliplr(transformed)
+    if flip_vertical:
+        transformed = np.flipud(transformed)
+
+    if not transformed.flags["C_CONTIGUOUS"]:
+        transformed = np.ascontiguousarray(transformed)
+    return transformed
+
+
 class PreviewEngine:
     """High-performance backend engine for decoding video frames and mixing multi-track audio.
 
@@ -21,7 +60,7 @@ class PreviewEngine:
     Attributes:
         _loaded_media (Dict[str, VideoFileClip]): Cache of open MoviePy VideoFileClip handles.
         _metadata_cache (Dict[str, Dict[str, Any]]): Cache of video duration, framerate, and size.
-        _frame_cache (OrderedDict[Tuple[str, int], np.ndarray]): LRU frame cache keyed by (file_path, quant_time).
+        _frame_cache (OrderedDict[Tuple[Any, ...], np.ndarray]): LRU frame cache keyed by (file_path, quant_time, rot, flip_h, flip_v).
         _audio_cache (Dict[str, Optional[np.ndarray]]): Cache of decoded float32 audio sound arrays.
         _cache_size (int): Maximum number of decoded RGB frames retained in the LRU cache.
         _lock (threading.Lock): Mutex ensuring thread-safe access to MoviePy readers and caches.
@@ -35,7 +74,7 @@ class PreviewEngine:
         """
         self._loaded_media: Dict[str, VideoFileClip] = {}
         self._metadata_cache: Dict[str, Dict[str, Any]] = {}
-        self._frame_cache: OrderedDict[Tuple[str, int], np.ndarray] = OrderedDict()
+        self._frame_cache: OrderedDict[Tuple[Any, ...], np.ndarray] = OrderedDict()
         self._audio_cache: Dict[str, Optional[np.ndarray]] = {}
         self._cache_size: int = max(30, int(cache_size))
         self._lock: threading.Lock = threading.Lock()
@@ -131,6 +170,7 @@ class PreviewEngine:
         """Decodes and returns a single frame for a Clip at a local timestamp.
 
         Utilizes an LRU memory cache to ensure repeated playback and scrubbing are instantaneous.
+        Applies rotation and horizontal/vertical flip transformations.
         Returns a solid black frame if the file is missing, broken, or empty.
 
         Args:
@@ -143,10 +183,14 @@ class PreviewEngine:
         if not clip.file_path or not os.path.exists(clip.file_path):
             return np.zeros((1080, 1920, 3), dtype=np.uint8)
 
+        rot = int(getattr(clip, "rotation", 0)) % 360
+        flip_h = bool(getattr(clip, "flip_horizontal", False))
+        flip_v = bool(getattr(clip, "flip_vertical", False))
+
         # 1. Handle static images (return identical image regardless of timestamp)
         from models.clip import detect_media_type
         if clip.is_image or detect_media_type(clip.file_path) == "image":
-            cache_key = (clip.file_path, 0)
+            cache_key = (clip.file_path, 0, rot, flip_h, flip_v)
             with self._lock:
                 if cache_key in self._frame_cache:
                     frame = self._frame_cache[cache_key]
@@ -157,11 +201,12 @@ class PreviewEngine:
                 with Image.open(clip.file_path) as img:
                     img_rgb = img.convert("RGB")
                     raw_frame = np.array(img_rgb, dtype=np.uint8)
+                    transformed = _apply_frame_transform(raw_frame, rot, flip_h, flip_v)
                     with self._lock:
                         if len(self._frame_cache) >= self._cache_size:
                             self._frame_cache.popitem(last=False)
-                        self._frame_cache[cache_key] = raw_frame
-                    return raw_frame
+                        self._frame_cache[cache_key] = transformed
+                    return transformed
             except Exception as e:
                 print(f"Engine Warning: Failed to load image frame from {clip.file_path}: {e}")
                 return np.zeros((1080, 1920, 3), dtype=np.uint8)
@@ -178,7 +223,7 @@ class PreviewEngine:
         max_safe_time = max(0.0, media_duration - end_buffer) if media_duration > 0.2 else media_duration
         safe_time = max(0.0, min(actual_media_time, max_safe_time))
 
-        cache_key = (clip.file_path, int(round(safe_time * 100)))
+        cache_key = (clip.file_path, int(round(safe_time * 100)), rot, flip_h, flip_v)
 
         with self._lock:
             if cache_key in self._frame_cache:
@@ -195,11 +240,13 @@ class PreviewEngine:
                 if not isinstance(raw_frame, np.ndarray) or raw_frame.dtype != np.uint8:
                     raw_frame = np.ascontiguousarray(raw_frame, dtype=np.uint8)
 
+                transformed = _apply_frame_transform(raw_frame, rot, flip_h, flip_v)
+
                 if len(self._frame_cache) >= self._cache_size:
                     self._frame_cache.popitem(last=False)
-                self._frame_cache[cache_key] = raw_frame
+                self._frame_cache[cache_key] = transformed
 
-            return raw_frame
+            return transformed
         except Exception as e:
             print(f"Engine Warning: Failed to extract frame at {safe_time:.2f}s from {clip.file_path}: {e}")
             width, height = getattr(media, "size", (1920, 1080))
@@ -233,6 +280,9 @@ class PreviewEngine:
         duration: float = 10.0,
         count: int = 6,
         thumb_height: int = 36,
+        rotation: int = 0,
+        flip_horizontal: bool = False,
+        flip_vertical: bool = False,
     ) -> List[np.ndarray]:
         """Extracts a sequence of thumbnail frames spanning the clip duration.
 
@@ -245,6 +295,9 @@ class PreviewEngine:
             duration (float): Length of the clip segment in seconds. Defaults to 10.0.
             count (int): Number of thumbnail sample frames to extract. Defaults to 6.
             thumb_height (int): Target height in pixels for the generated thumbnails. Defaults to 36.
+            rotation (int): Clockwise rotation angle in degrees (0, 90, 180, 270). Defaults to 0.
+            flip_horizontal (bool): True if mirrored horizontally. Defaults to False.
+            flip_vertical (bool): True if mirrored vertically. Defaults to False.
 
         Returns:
             List[np.ndarray]: List of thumbnail images as RGB numpy arrays of shape (thumb_height, thumb_width, 3).
@@ -259,10 +312,13 @@ class PreviewEngine:
             try:
                 with Image.open(file_path) as img:
                     img_rgb = img.convert("RGB")
-                    w, h = img_rgb.size
+                    raw_arr = np.array(img_rgb, dtype=np.uint8)
+                    transformed = _apply_frame_transform(raw_arr, rotation, flip_horizontal, flip_vertical)
+                    t_img = Image.fromarray(transformed)
+                    w, h = t_img.size
                     aspect = w / max(1, h)
                     thumb_w = max(16, int(thumb_height * aspect))
-                    thumb_img = img_rgb.resize((thumb_w, thumb_height), Image.Resampling.BILINEAR)
+                    thumb_img = t_img.resize((thumb_w, thumb_height), Image.Resampling.BILINEAR)
                     thumb_arr = np.array(thumb_img, dtype=np.uint8)
                     return [thumb_arr] * max(1, min(count, 30))
             except Exception as e:
@@ -295,10 +351,11 @@ class PreviewEngine:
                         frame = isolated_clip.get_frame(safe_t)
 
                     if frame is not None and frame.size > 0:
-                        h, w = frame.shape[:2]
+                        transformed = _apply_frame_transform(frame, rotation, flip_horizontal, flip_vertical)
+                        h, w = transformed.shape[:2]
                         aspect = w / max(1, h)
                         thumb_w = max(16, int(thumb_height * aspect))
-                        img = Image.fromarray(frame)
+                        img = Image.fromarray(transformed)
                         img_thumb = img.resize((thumb_w, thumb_height), Image.Resampling.BILINEAR)
                         thumbnails.append(np.array(img_thumb, dtype=np.uint8))
                 except Exception as e:

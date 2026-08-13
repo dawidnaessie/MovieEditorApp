@@ -161,3 +161,47 @@ def test_render_engine_with_audio_track_and_volume(render_dummy_media, tmp_path)
     assert success is True
     assert os.path.exists(out_mp4)
     assert os.path.getsize(out_mp4) > 1000
+
+
+def test_render_engine_phone_format_and_rotation(render_dummy_media, tmp_path):
+    """Validates rendering a project in vertical phone format (9:16) with rotated and flipped clips."""
+    media = render_dummy_media
+    out_phone_mp4 = os.path.join(str(tmp_path), "exported_phone.mp4")
+
+    # Vertical phone canvas: 90 width x 160 height
+    project = Project(name="Phone Format Test", resolution=(90, 160), fps=24.0)
+    v1 = project.add_track("Video 1")
+
+    # Horizontal video (160x90) rotated 90 CW and flipped horizontally to fit phone format
+    clip = Clip(
+        file_path=media["video"],
+        name="Rotated Phone Clip",
+        source_start=0.0,
+        source_end=1.0,
+        timeline_position=0.0,
+        rotation=90,
+        flip_horizontal=True,
+    )
+    v1.clips.append(clip)
+
+    engine = RenderEngine()
+    success = engine.render_project(
+        project=project,
+        output_path=out_phone_mp4,
+        export_format="mp4",
+        resolution=(90, 160),
+        fps=24.0,
+    )
+
+    assert success is True
+    assert os.path.exists(out_phone_mp4)
+    assert os.path.getsize(out_phone_mp4) > 1000
+
+    # Validate output media size matches phone portrait resolution
+    preview = PreviewEngine()
+    try:
+        info = preview.get_media_info(out_phone_mp4)
+        assert info["size"] == [90, 160]
+    finally:
+        preview.close()
+

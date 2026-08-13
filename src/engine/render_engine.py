@@ -19,6 +19,7 @@ from moviepy import (
     ImageClip,
     VideoFileClip,
 )
+import moviepy.video.fx as vfx
 from PIL import Image
 from PyQt6.QtCore import QObject, QRunnable, pyqtSignal, pyqtSlot
 
@@ -159,6 +160,31 @@ class RenderEngine:
                         if media_type == "image":
                             img_clip = ImageClip(clip_model.file_path)
                             img_clip = _apply_clip_timing(img_clip, clip_model.timeline_position, clip_model.duration)
+
+                            # Apply rotation and flip effects
+                            rot = int(getattr(clip_model, "rotation", 0)) % 360
+                            flip_h = bool(getattr(clip_model, "flip_horizontal", False))
+                            flip_v = bool(getattr(clip_model, "flip_vertical", False))
+
+                            img_effects = []
+                            if rot == 90:
+                                img_effects.append(vfx.Rotate(270, expand=True))
+                            elif rot == 180:
+                                img_effects.append(vfx.Rotate(180, expand=True))
+                            elif rot == 270:
+                                img_effects.append(vfx.Rotate(90, expand=True))
+
+                            if flip_h:
+                                img_effects.append(vfx.MirrorX())
+                            if flip_v:
+                                img_effects.append(vfx.MirrorY())
+
+                            if img_effects:
+                                try:
+                                    img_clip = img_clip.with_effects(img_effects)
+                                except Exception as e:
+                                    print(f"RenderEngine Warning: Failed to apply effects to image: {e}")
+
                             if hasattr(img_clip, "resized"):
                                 img_clip = img_clip.resized(target_resolution)
                             elif hasattr(img_clip, "resize"):
@@ -198,6 +224,30 @@ class RenderEngine:
                                             segment = segment.with_speed_scaled(speed_factor)
                                     except Exception:
                                         pass
+
+                            # Apply rotation and flip effects
+                            rot = int(getattr(clip_model, "rotation", 0)) % 360
+                            flip_h = bool(getattr(clip_model, "flip_horizontal", False))
+                            flip_v = bool(getattr(clip_model, "flip_vertical", False))
+
+                            vid_effects = []
+                            if rot == 90:
+                                vid_effects.append(vfx.Rotate(270, expand=True))
+                            elif rot == 180:
+                                vid_effects.append(vfx.Rotate(180, expand=True))
+                            elif rot == 270:
+                                vid_effects.append(vfx.Rotate(90, expand=True))
+
+                            if flip_h:
+                                vid_effects.append(vfx.MirrorX())
+                            if flip_v:
+                                vid_effects.append(vfx.MirrorY())
+
+                            if vid_effects:
+                                try:
+                                    segment = segment.with_effects(vid_effects)
+                                except Exception as e:
+                                    print(f"RenderEngine Warning: Failed to apply effects to video: {e}")
 
                             # Apply track volume / mute to video audio if present
                             if getattr(segment, "audio", None) is not None:

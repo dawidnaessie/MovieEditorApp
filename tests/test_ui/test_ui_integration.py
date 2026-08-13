@@ -618,3 +618,102 @@ def test_main_window_track_volume_and_mute_integration(main_window):
     # 3. Click unmute on Video 1 header
     strip_v1.header.btn_mute.click()
     assert track_v1.is_muted is False
+
+
+def test_export_dialog_phone_format_presets(main_window):
+    """Validates presence and correct resolutions for phone format presets in ExportDialog."""
+    from ui.export_dialog import ExportDialog
+    dialog = ExportDialog(project=main_window.project)
+    try:
+        # Collect resolution presets in combo_res
+        resolutions = [dialog.combo_res.itemData(i) for i in range(dialog.combo_res.count())]
+        labels = [dialog.combo_res.itemText(i) for i in range(dialog.combo_res.count())]
+
+        # Verify phone format 1080x1920 and 720x1280
+        assert (1080, 1920) in resolutions
+        assert (720, 1280) in resolutions
+        assert any("Phone" in lbl and "1080 × 1920" in lbl for lbl in labels)
+        assert any("Phone" in lbl and "720 × 1280" in lbl for lbl in labels)
+    finally:
+        dialog.close()
+
+
+def test_clip_widget_transform_context_and_signals(qapp):
+    """Validates ClipWidget rotation and flipping methods and signal emissions."""
+    cw = ClipWidget(
+        clip_name="Test Clip",
+        file_path="video.mp4",
+        timeline_position=0.0,
+        duration=5.0,
+        clip_id="clip-abc",
+    )
+    assert cw.rotation == 0
+    assert cw.flip_horizontal is False
+    assert cw.flip_vertical is False
+
+    transforms_received = []
+    cw.clip_transform_changed.connect(lambda cid, rot, fh, fv: transforms_received.append((cid, rot, fh, fv)))
+
+    # 1. Rotate CW
+    cw._rotate_cw()
+    assert cw.rotation == 90
+    assert len(transforms_received) == 1
+    assert transforms_received[-1] == ("clip-abc", 90, False, False)
+
+    # 2. Rotate CCW -> back to 0
+    cw._rotate_ccw()
+    assert cw.rotation == 0
+    assert transforms_received[-1] == ("clip-abc", 0, False, False)
+
+    # 3. Rotate 180
+    cw._rotate_180()
+    assert cw.rotation == 180
+    assert transforms_received[-1] == ("clip-abc", 180, False, False)
+
+    # 4. Flip horizontal
+    cw._toggle_flip_h()
+    assert cw.flip_horizontal is True
+    assert transforms_received[-1] == ("clip-abc", 180, True, False)
+
+    # 5. Flip vertical
+    cw._toggle_flip_v()
+    assert cw.flip_vertical is True
+    assert transforms_received[-1] == ("clip-abc", 180, True, True)
+
+    # 6. Reset transform
+    cw._reset_transform()
+    assert cw.rotation == 0
+    assert cw.flip_horizontal is False
+    assert cw.flip_vertical is False
+    assert transforms_received[-1] == ("clip-abc", 0, False, False)
+
+
+def test_main_window_clip_transform_integration(main_window):
+    """Validates end-to-end clip transformation integration from timeline to project model."""
+    clip = Clip(
+        file_path="sample.mp4",
+        name="Sample",
+        source_start=0.0,
+        source_end=10.0,
+        timeline_position=0.0,
+    )
+    main_window.project.tracks[0].clips.append(clip)
+    main_window._rebuild_timeline_widgets()
+
+    assert clip.rotation == 0
+    assert clip.flip_horizontal is False
+    assert clip.flip_vertical is False
+
+    # Simulate transform change signal from timeline (90 deg CW, flip horizontal)
+    main_window.timeline_view.clip_transform_changed.emit(clip.id, 90, True, False)
+
+    assert clip.rotation == 90
+    assert clip.flip_horizontal is True
+    assert clip.flip_vertical is False
+
+    # Reset transform
+    main_window.timeline_view.clip_transform_changed.emit(clip.id, 0, False, False)
+    assert clip.rotation == 0
+    assert clip.flip_horizontal is False
+    assert clip.flip_vertical is False
+

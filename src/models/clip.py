@@ -55,6 +55,9 @@ class Clip:
     media_type: str = "video"
     image_duration: float = 5.0
     playback_duration: Optional[float] = None
+    rotation: int = 0
+    flip_horizontal: bool = False
+    flip_vertical: bool = False
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
 
     def __post_init__(self) -> None:
@@ -63,6 +66,7 @@ class Clip:
             detected = detect_media_type(self.file_path)
             if self.media_type == "video" and detected != "video":
                 self.media_type = detected
+        self.rotation = int(self.rotation) % 360
 
     @property
     def is_image(self) -> bool:
@@ -148,6 +152,56 @@ class Clip:
         self.source_end = float(new_end)
         self.playback_duration = None
 
+    def rotate_clockwise(self) -> int:
+        """Rotates the clip 90 degrees clockwise.
+
+        Returns:
+            int: The new rotation angle in degrees (0, 90, 180, or 270).
+        """
+        self.rotation = (self.rotation + 90) % 360
+        return self.rotation
+
+    def rotate_counter_clockwise(self) -> int:
+        """Rotates the clip 90 degrees counter-clockwise.
+
+        Returns:
+            int: The new rotation angle in degrees (0, 90, 180, or 270).
+        """
+        self.rotation = (self.rotation + 270) % 360
+        return self.rotation
+
+    def set_rotation(self, degrees: int) -> None:
+        """Sets the rotation angle in degrees, normalized to [0, 360).
+
+        Args:
+            degrees (int): Rotation angle in degrees (clockwise).
+        """
+        self.rotation = int(degrees) % 360
+
+    def toggle_flip_horizontal(self) -> bool:
+        """Toggles the horizontal flip (mirror left-to-right) state.
+
+        Returns:
+            bool: The new flip_horizontal state after toggling.
+        """
+        self.flip_horizontal = not self.flip_horizontal
+        return self.flip_horizontal
+
+    def toggle_flip_vertical(self) -> bool:
+        """Toggles the vertical flip (mirror top-to-bottom) state.
+
+        Returns:
+            bool: The new flip_vertical state after toggling.
+        """
+        self.flip_vertical = not self.flip_vertical
+        return self.flip_vertical
+
+    def reset_transform(self) -> None:
+        """Resets all rotation and flip transformations to default orientation."""
+        self.rotation = 0
+        self.flip_horizontal = False
+        self.flip_vertical = False
+
     def frame_count(self, fps: float = 30.0) -> int:
         """Calculates the total number of frames contained within this clip segment.
 
@@ -191,6 +245,9 @@ class Clip:
             "media_type": self.media_type,
             "image_duration": float(self.image_duration),
             "playback_duration": float(self.playback_duration) if self.playback_duration is not None else None,
+            "rotation": int(self.rotation),
+            "flip_horizontal": bool(self.flip_horizontal),
+            "flip_vertical": bool(self.flip_vertical),
             "id": self.id,
         }
 
@@ -209,6 +266,9 @@ class Clip:
         media_type = str(data.get("media_type", default_type))
         raw_pb_dur = data.get("playback_duration")
         playback_duration = float(raw_pb_dur) if raw_pb_dur is not None else None
+        rotation = int(data.get("rotation", 0)) % 360
+        flip_horizontal = bool(data.get("flip_horizontal", False))
+        flip_vertical = bool(data.get("flip_vertical", False))
 
         return cls(
             file_path=file_path,
@@ -219,5 +279,8 @@ class Clip:
             media_type=media_type,
             image_duration=float(data.get("image_duration", 5.0)),
             playback_duration=playback_duration,
+            rotation=rotation,
+            flip_horizontal=flip_horizontal,
+            flip_vertical=flip_vertical,
             id=str(data.get("id", uuid.uuid4())),
         )

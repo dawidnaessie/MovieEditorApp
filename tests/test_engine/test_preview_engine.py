@@ -269,3 +269,62 @@ def test_preview_engine_track_volume_and_muting(tmp_path):
     finally:
         engine.close()
 
+
+def test_preview_engine_rotation_and_flipping(dummy_video_file, tmp_path):
+    """Validates RGB frame rotation (90°, 180°, 270°) and horizontal/vertical flipping."""
+    # Create an asymmetric image: 100 wide x 60 high, with top half blue, bottom half green, left edge white
+    img_path = os.path.join(str(tmp_path), "asym_test.png")
+    arr = np.zeros((60, 100, 3), dtype=np.uint8)
+    arr[:30, :, 2] = 255  # Blue top
+    arr[30:, :, 1] = 255  # Green bottom
+    arr[:, :10, :] = 255  # White left strip
+    Image.fromarray(arr).save(img_path)
+
+    engine = PreviewEngine()
+    try:
+        # 1. Base clip: 0 deg, no flip
+        clip_base = Clip(file_path=img_path, name="Base", media_type="image", rotation=0)
+        f_base = engine.get_frame(clip_base, 0.0)
+        assert f_base.shape == (60, 100, 3)
+
+        # 2. Rotate 90 CW: shape becomes (100, 60, 3)
+        clip_90 = Clip(file_path=img_path, name="Rot90", media_type="image", rotation=90)
+        f_90 = engine.get_frame(clip_90, 0.0)
+        assert f_90.shape == (100, 60, 3)
+        # In 90 CW, the left edge (white) becomes the top edge
+        assert f_90[:10, :, :].mean() > 200
+
+        # 3. Rotate 180: shape is (60, 100, 3), top and bottom flipped, left becomes right
+        clip_180 = Clip(file_path=img_path, name="Rot180", media_type="image", rotation=180)
+        f_180 = engine.get_frame(clip_180, 0.0)
+        assert f_180.shape == (60, 100, 3)
+        # Left edge became right edge
+        assert f_180[:, -10:, :].mean() > 200
+
+        # 4. Flip horizontal
+        clip_fliph = Clip(file_path=img_path, name="FlipH", media_type="image", flip_horizontal=True)
+        f_fliph = engine.get_frame(clip_fliph, 0.0)
+        assert f_fliph.shape == (60, 100, 3)
+        assert f_fliph[:, -10:, :].mean() > 200
+
+        # 5. Flip vertical
+        clip_flipv = Clip(file_path=img_path, name="FlipV", media_type="image", flip_vertical=True)
+        f_flipv = engine.get_frame(clip_flipv, 0.0)
+        assert f_flipv.shape == (60, 100, 3)
+        # Top was blue, now top is green
+        assert f_flipv[:30, 20:, 1].mean() > 200
+
+        # 6. Video clip rotation
+        v_clip_90 = Clip(file_path=dummy_video_file, name="Video90", rotation=90, source_start=0.0, source_end=1.0)
+        v_frame = engine.get_frame(v_clip_90, 0.2)
+        # Original dummy was (80, 120, 3), rotated 90 CW is (120, 80, 3)
+        assert v_frame.shape == (120, 80, 3)
+
+        # 7. Thumbnails with rotation
+        thumbs_90 = engine.extract_clip_thumbnails(img_path, count=2, thumb_height=40, rotation=90)
+        assert len(thumbs_90) == 2
+        assert thumbs_90[0].shape[0] == 40
+    finally:
+        engine.close()
+
+

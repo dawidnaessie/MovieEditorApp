@@ -101,6 +101,7 @@ class ClipWidget(QWidget):
     trim_requested = pyqtSignal(object, float, bool)  # (self, new_val, is_left)
     clip_moved = pyqtSignal(object, float, int)  # (self, new_timeline_position, target_track_index)
     clip_time_updated = pyqtSignal(str, float, float)  # (clip_id, new_start, new_end)
+    clip_transform_changed = pyqtSignal(str, int, bool, bool)  # (clip_id, rotation, flip_h, flip_v)
 
     def __init__(
         self,
@@ -117,6 +118,9 @@ class ClipWidget(QWidget):
         height: int = 58,
         source_start: float = 0.0,
         source_end: float = 0.0,
+        rotation: int = 0,
+        flip_horizontal: bool = False,
+        flip_vertical: bool = False,
     ):
         super().__init__(parent)
         self.clip_name = clip_name
@@ -128,6 +132,9 @@ class ClipWidget(QWidget):
         self.track_index = track_index
         self.pixels_per_second = pixels_per_second
         self.clip_id = clip_id
+        self.rotation = int(rotation) % 360
+        self.flip_horizontal = bool(flip_horizontal)
+        self.flip_vertical = bool(flip_vertical)
         self.active_tool = "select"
         self._thumbnails: List[QPixmap] = []
         self.is_selected = False
@@ -421,7 +428,7 @@ class ClipWidget(QWidget):
         super().mouseReleaseEvent(event)
 
     def contextMenuEvent(self, event: QContextMenuEvent) -> None:
-        """Context menu with Set Play Time, Split, and Delete options."""
+        """Context menu with Set Play Time, Split, Rotate, Flip, and Delete options."""
         self.set_selected(True)
         self.clip_selected.emit(self)
 
@@ -449,11 +456,96 @@ class ClipWidget(QWidget):
         action_split.triggered.connect(lambda: self.split_requested.emit(self.clip_id, click_time))
         menu.addAction(action_split)
 
+        menu.addSeparator()
+
+        # Rotate & Flip Transform Submenu
+        transform_menu = menu.addMenu("🔄 Rotate & Flip")
+        transform_menu.setStyleSheet("""
+            QMenu {
+                background-color: #1a1436;
+                color: #f5f3ff;
+                border: 1px solid #3b2d70;
+                border-radius: 4px;
+                padding: 4px;
+            }
+            QMenu::item:selected {
+                background-color: #7c3aed;
+                color: #ffffff;
+            }
+        """)
+
+        action_rot_cw = QAction("🔄 Rotate 90° Right (Clockwise)", self)
+        action_rot_cw.triggered.connect(self._rotate_cw)
+        transform_menu.addAction(action_rot_cw)
+
+        action_rot_ccw = QAction("🔄 Rotate 90° Left (Counter-Clockwise)", self)
+        action_rot_ccw.triggered.connect(self._rotate_ccw)
+        transform_menu.addAction(action_rot_ccw)
+
+        action_rot_180 = QAction("🔄 Rotate 180°", self)
+        action_rot_180.triggered.connect(self._rotate_180)
+        transform_menu.addAction(action_rot_180)
+
+        transform_menu.addSeparator()
+
+        action_flip_h = QAction("↔️ Flip Horizontal" + (" (Active)" if self.flip_horizontal else ""), self)
+        action_flip_h.triggered.connect(self._toggle_flip_h)
+        transform_menu.addAction(action_flip_h)
+
+        action_flip_v = QAction("↕️ Flip Vertical" + (" (Active)" if self.flip_vertical else ""), self)
+        action_flip_v.triggered.connect(self._toggle_flip_v)
+        transform_menu.addAction(action_flip_v)
+
+        transform_menu.addSeparator()
+
+        action_reset_tf = QAction("↺ Reset Transform", self)
+        action_reset_tf.triggered.connect(self._reset_transform)
+        transform_menu.addAction(action_reset_tf)
+
+        # Quick access rotate 90 on main menu
+        action_quick_rotate = QAction("🔄 Rotate 90°", self)
+        action_quick_rotate.triggered.connect(self._rotate_cw)
+        menu.addAction(action_quick_rotate)
+
+        menu.addSeparator()
+
         action_delete = QAction("🗑️ Delete Clip (Del)", self)
         action_delete.triggered.connect(lambda: self.delete_requested.emit(self))
         menu.addAction(action_delete)
 
         menu.exec(event.globalPos())
+
+    def _rotate_cw(self) -> None:
+        """Rotates the clip 90 degrees clockwise."""
+        self.rotation = (self.rotation + 90) % 360
+        self.clip_transform_changed.emit(self.clip_id, self.rotation, self.flip_horizontal, self.flip_vertical)
+
+    def _rotate_ccw(self) -> None:
+        """Rotates the clip 90 degrees counter-clockwise."""
+        self.rotation = (self.rotation + 270) % 360
+        self.clip_transform_changed.emit(self.clip_id, self.rotation, self.flip_horizontal, self.flip_vertical)
+
+    def _rotate_180(self) -> None:
+        """Rotates the clip 180 degrees."""
+        self.rotation = (self.rotation + 180) % 360
+        self.clip_transform_changed.emit(self.clip_id, self.rotation, self.flip_horizontal, self.flip_vertical)
+
+    def _toggle_flip_h(self) -> None:
+        """Toggles horizontal mirror flip state."""
+        self.flip_horizontal = not self.flip_horizontal
+        self.clip_transform_changed.emit(self.clip_id, self.rotation, self.flip_horizontal, self.flip_vertical)
+
+    def _toggle_flip_v(self) -> None:
+        """Toggles vertical flip state."""
+        self.flip_vertical = not self.flip_vertical
+        self.clip_transform_changed.emit(self.clip_id, self.rotation, self.flip_horizontal, self.flip_vertical)
+
+    def _reset_transform(self) -> None:
+        """Resets rotation and flip transformations to default orientation."""
+        self.rotation = 0
+        self.flip_horizontal = False
+        self.flip_vertical = False
+        self.clip_transform_changed.emit(self.clip_id, 0, False, False)
 
     def _open_set_time_dialog(self) -> None:
         """Opens the SetTimeDialog to manually configure clip in/out points and resizes the widget."""
@@ -534,6 +626,7 @@ class TrackLaneWidget(QWidget):
     trim_requested = pyqtSignal(object, float, bool)
     clip_moved = pyqtSignal(object, float, int)
     clip_time_updated = pyqtSignal(str, float, float)
+    clip_transform_changed = pyqtSignal(str, int, bool, bool)
 
     def __init__(self, track_index: int, pixels_per_second: float = DEFAULT_PIXELS_PER_SECOND):
         super().__init__()
@@ -570,6 +663,9 @@ class TrackLaneWidget(QWidget):
         clip_id: str = "",
         source_start: float = 0.0,
         source_end: float = 0.0,
+        rotation: int = 0,
+        flip_horizontal: bool = False,
+        flip_vertical: bool = False,
     ) -> ClipWidget:
         """Adds a visual clip block to the track lane matching its duration and timeline position."""
         drop_x = int(timeline_position * self.pixels_per_second)
@@ -589,6 +685,9 @@ class TrackLaneWidget(QWidget):
             height=clip_height,
             source_start=source_start,
             source_end=source_end,
+            rotation=rotation,
+            flip_horizontal=flip_horizontal,
+            flip_vertical=flip_vertical,
         )
         clip_widget.set_active_tool(self.active_tool)
         clip_widget.clip_selected.connect(self.clip_selected.emit)
@@ -597,6 +696,7 @@ class TrackLaneWidget(QWidget):
         clip_widget.trim_requested.connect(self.trim_requested.emit)
         clip_widget.clip_moved.connect(self.clip_moved.emit)
         clip_widget.clip_time_updated.connect(self.clip_time_updated.emit)
+        clip_widget.clip_transform_changed.connect(self.clip_transform_changed.emit)
         self.clip_widgets.append(clip_widget)
         return clip_widget
 
@@ -836,6 +936,7 @@ class TrackStripWidget(QWidget):
     trim_requested = pyqtSignal(object, float, bool)
     clip_moved = pyqtSignal(object, float, int)
     clip_time_updated = pyqtSignal(str, float, float)
+    clip_transform_changed = pyqtSignal(str, int, bool, bool)
     track_volume_changed = pyqtSignal(str, float)
     track_mute_toggled = pyqtSignal(str, bool)
 
@@ -883,6 +984,7 @@ class TrackStripWidget(QWidget):
         self.lane.trim_requested.connect(self.trim_requested.emit)
         self.lane.clip_moved.connect(self.clip_moved.emit)
         self.lane.clip_time_updated.connect(self.clip_time_updated.emit)
+        self.lane.clip_transform_changed.connect(self.clip_transform_changed.emit)
         layout.addWidget(self.lane, stretch=1)
 
     def set_zoom(self, pixels_per_second: float) -> None:
@@ -940,6 +1042,7 @@ class TimelineCanvas(QWidget):
     trim_requested = pyqtSignal(object, float, bool)
     clip_moved = pyqtSignal(object, float, int)
     clip_time_updated = pyqtSignal(str, float, float)
+    clip_transform_changed = pyqtSignal(str, int, bool, bool)
     track_volume_changed = pyqtSignal(str, float)
     track_mute_toggled = pyqtSignal(str, bool)
     zoom_changed = pyqtSignal(float)
@@ -1097,6 +1200,7 @@ class TimelineCanvas(QWidget):
         strip.trim_requested.connect(self.trim_requested.emit)
         strip.clip_moved.connect(self.clip_moved.emit)
         strip.clip_time_updated.connect(self.clip_time_updated.emit)
+        strip.clip_transform_changed.connect(self.clip_transform_changed.emit)
         strip.track_volume_changed.connect(self.track_volume_changed.emit)
         strip.track_mute_toggled.connect(self.track_mute_toggled.emit)
         strip.lane.set_active_tool(self.active_tool)
@@ -1115,6 +1219,9 @@ class TimelineCanvas(QWidget):
         clip_id: str = "",
         source_start: float = 0.0,
         source_end: float = 0.0,
+        rotation: int = 0,
+        flip_horizontal: bool = False,
+        flip_vertical: bool = False,
     ) -> ClipWidget | None:
         if 0 <= track_index < len(self.track_strips):
             strip = self.track_strips[track_index]
@@ -1127,6 +1234,9 @@ class TimelineCanvas(QWidget):
                 clip_id=clip_id,
                 source_start=source_start,
                 source_end=source_end,
+                rotation=rotation,
+                flip_horizontal=flip_horizontal,
+                flip_vertical=flip_vertical,
             )
             drop_x = self.time_to_x(timeline_position)
             clip_pixel_w = int(duration * self.pixels_per_second)
@@ -1276,6 +1386,7 @@ class TimelineView(QWidget):
     trim_requested = pyqtSignal(object, float, bool)
     clip_moved = pyqtSignal(object, float, int)
     clip_time_updated = pyqtSignal(str, float, float)
+    clip_transform_changed = pyqtSignal(str, int, bool, bool)
     track_volume_changed = pyqtSignal(str, float)
     track_mute_toggled = pyqtSignal(str, bool)
     split_at_playhead_requested = pyqtSignal()
@@ -1384,6 +1495,7 @@ class TimelineView(QWidget):
         self.canvas.trim_requested.connect(self.trim_requested.emit)
         self.canvas.clip_moved.connect(self.clip_moved.emit)
         self.canvas.clip_time_updated.connect(self.clip_time_updated.emit)
+        self.canvas.clip_transform_changed.connect(self.clip_transform_changed.emit)
         self.canvas.track_volume_changed.connect(self.track_volume_changed.emit)
         self.canvas.track_mute_toggled.connect(self.track_mute_toggled.emit)
         self.canvas.zoom_changed.connect(self.toolbar.set_zoom_value)
@@ -1462,6 +1574,9 @@ class TimelineView(QWidget):
         clip_id: str = "",
         source_start: float = 0.0,
         source_end: float = 0.0,
+        rotation: int = 0,
+        flip_horizontal: bool = False,
+        flip_vertical: bool = False,
     ) -> ClipWidget | None:
         return self.canvas.add_clip_to_track(
             track_index,
@@ -1471,6 +1586,9 @@ class TimelineView(QWidget):
             clip_id=clip_id,
             source_start=source_start,
             source_end=source_end,
+            rotation=rotation,
+            flip_horizontal=flip_horizontal,
+            flip_vertical=flip_vertical,
         )
 
     def remove_clip_widget(self, clip_widget: ClipWidget) -> None:

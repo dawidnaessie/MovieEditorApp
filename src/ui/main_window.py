@@ -62,6 +62,9 @@ class ThumbnailWorker(QRunnable):
         source_start: float,
         duration: float,
         count: int = 8,
+        rotation: int = 0,
+        flip_horizontal: bool = False,
+        flip_vertical: bool = False,
     ):
         super().__init__()
         self.setAutoDelete(True)
@@ -71,6 +74,9 @@ class ThumbnailWorker(QRunnable):
         self.source_start = source_start
         self.duration = duration
         self.count = count
+        self.rotation = rotation
+        self.flip_horizontal = flip_horizontal
+        self.flip_vertical = flip_vertical
         self.signals = WorkerSignals()
         self.is_cancelled = False
 
@@ -95,6 +101,9 @@ class ThumbnailWorker(QRunnable):
                 duration=self.duration,
                 count=self.count,
                 thumb_height=36,
+                rotation=self.rotation,
+                flip_horizontal=self.flip_horizontal,
+                flip_vertical=self.flip_vertical,
             )
             if not self.is_cancelled:
                 try:
@@ -295,6 +304,7 @@ class MainWindow(QMainWindow):
         self.timeline_view.trim_requested.connect(self._on_trim_requested)
         self.timeline_view.clip_moved.connect(self._on_clip_moved)
         self.timeline_view.clip_time_updated.connect(self._on_clip_time_updated)
+        self.timeline_view.clip_transform_changed.connect(self._on_clip_transform_changed)
         self.timeline_view.split_at_playhead_requested.connect(self._on_split_at_playhead)
         self.timeline_view.track_volume_changed.connect(self._on_track_volume_changed)
         self.timeline_view.track_mute_toggled.connect(self._on_track_mute_toggled)
@@ -324,6 +334,9 @@ class MainWindow(QMainWindow):
         duration: float,
     ) -> None:
         """Launches a background worker to extract thumbnail frames for the clip's filmstrip."""
+        rot = int(getattr(clip_widget, "rotation", 0))
+        flip_h = bool(getattr(clip_widget, "flip_horizontal", False))
+        flip_v = bool(getattr(clip_widget, "flip_vertical", False))
         worker = ThumbnailWorker(
             engine=self.preview_engine,
             clip_widget=clip_widget,
@@ -331,6 +344,9 @@ class MainWindow(QMainWindow):
             source_start=source_start,
             duration=duration,
             count=10,
+            rotation=rot,
+            flip_horizontal=flip_h,
+            flip_vertical=flip_v,
         )
         self._active_workers.add(worker)
         worker.signals.thumbnails_ready.connect(self._on_thumbnails_ready)
@@ -549,6 +565,56 @@ class MainWindow(QMainWindow):
 
         self._render_current_frame(force=True)
 
+    @pyqtSlot(str, int, bool, bool)
+    def _on_clip_transform_changed(
+        self,
+        clip_id: str,
+        rotation: int,
+        flip_h: bool,
+        flip_v: bool,
+    ) -> None:
+        """Invoked when user modifies clip rotation or flip state via context menu.
+
+        Updates the underlying Clip model, reloads filmstrip thumbnails to reflect transformed
+        orientation, and refreshes the preview display.
+
+        Args:
+            clip_id (str): UUID identifier of the target clip.
+            rotation (int): Clockwise rotation angle in degrees.
+            flip_h (bool): True if mirrored horizontally.
+            flip_v (bool): True if mirrored vertically.
+        """
+        if not clip_id:
+            return
+
+        target_clip: Optional[Clip] = None
+        for track in self.project.tracks:
+            for clip in track.clips:
+                if clip.id == clip_id:
+                    target_clip = clip
+                    break
+            if target_clip:
+                break
+
+        if not target_clip:
+            return
+
+        target_clip.set_rotation(rotation)
+        target_clip.flip_horizontal = flip_h
+        target_clip.flip_vertical = flip_v
+
+        # Update matching ClipWidget and reload thumbnails
+        for strip in self.timeline_view.canvas.track_strips:
+            for cw in strip.lane.clip_widgets:
+                if cw.clip_id == clip_id:
+                    cw.rotation = rotation
+                    cw.flip_horizontal = flip_h
+                    cw.flip_vertical = flip_v
+                    self._load_thumbnails_async(cw, target_clip.file_path, target_clip.source_start, target_clip.duration)
+                    break
+
+        self._render_current_frame(force=True)
+
     def _rebuild_timeline_widgets(self) -> None:
         """Cleans and re-instantiates clip widgets matching the current project model."""
         # Cancel running workers
@@ -579,6 +645,9 @@ class MainWindow(QMainWindow):
                     clip_id=clip.id,
                     source_start=clip.source_start,
                     source_end=clip.source_end,
+                    rotation=clip.rotation,
+                    flip_horizontal=clip.flip_horizontal,
+                    flip_vertical=clip.flip_vertical,
                 )
                 if clip_w:
                     self._load_thumbnails_async(clip_w, clip.file_path, clip.source_start, clip.duration)

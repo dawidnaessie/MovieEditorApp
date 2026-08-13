@@ -188,3 +188,77 @@ def test_clip_update_source_times_success_and_validation():
         clip.update_source_times(0.0, -5.0)
 
 
+def test_clip_rotation_and_flip_transformations():
+    """Validates clip rotation, horizontal and vertical flip operations, and serialization."""
+    clip = Clip(
+        file_path="phone_video.mp4",
+        name="Phone Portrait",
+        source_start=0.0,
+        source_end=10.0,
+        rotation=0,
+    )
+    assert clip.rotation == 0
+    assert clip.flip_horizontal is False
+    assert clip.flip_vertical is False
+
+    # Rotate 90 CW
+    assert clip.rotate_clockwise() == 90
+    assert clip.rotation == 90
+
+    # Rotate 90 CW again -> 180
+    assert clip.rotate_clockwise() == 180
+
+    # Rotate 90 CW again -> 270
+    assert clip.rotate_clockwise() == 270
+
+    # Rotate 90 CW again -> 0
+    assert clip.rotate_clockwise() == 0
+
+    # Rotate CCW -> 270 (90 Left)
+    assert clip.rotate_counter_clockwise() == 270
+    assert clip.rotate_counter_clockwise() == 180
+    assert clip.rotate_counter_clockwise() == 90
+    assert clip.rotate_counter_clockwise() == 0
+
+    # set_rotation normalization
+    clip.set_rotation(450)
+    assert clip.rotation == 90
+
+    # Flip horizontal toggle
+    assert clip.toggle_flip_horizontal() is True
+    assert clip.flip_horizontal is True
+    assert clip.toggle_flip_horizontal() is False
+    assert clip.flip_horizontal is False
+
+    # Flip vertical toggle
+    assert clip.toggle_flip_vertical() is True
+    assert clip.flip_vertical is True
+    assert clip.toggle_flip_vertical() is False
+    assert clip.flip_vertical is False
+
+    # Reset transform
+    clip.set_rotation(90)
+    clip.toggle_flip_horizontal()
+    clip.toggle_flip_vertical()
+    clip.reset_transform()
+    assert clip.rotation == 0
+    assert clip.flip_horizontal is False
+    assert clip.flip_vertical is False
+
+    # Serialization roundtrip with rotation and flip
+    clip.set_rotation(270)
+    clip.flip_horizontal = True
+    clip.flip_vertical = False
+
+    data = clip.to_dict()
+    assert data["rotation"] == 270
+    assert data["flip_horizontal"] is True
+    assert data["flip_vertical"] is False
+
+    restored = Clip.from_dict(data)
+    assert restored.rotation == 270
+    assert restored.flip_horizontal is True
+    assert restored.flip_vertical is False
+
+
+

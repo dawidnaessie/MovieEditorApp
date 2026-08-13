@@ -140,6 +140,8 @@ class ExportDialog(QDialog):
 
         # 2. Resolution Preset
         self.combo_res = QComboBox()
+        self.combo_res.addItem("1080p Phone / TikTok / Reels (1080 × 1920)", (1080, 1920))
+        self.combo_res.addItem("720p Phone / Vertical HD (720 × 1280)", (720, 1280))
         self.combo_res.addItem("1080p Full HD (1920 × 1080)", (1920, 1080))
         self.combo_res.addItem("720p HD (1280 × 720)", (1280, 720))
         self.combo_res.addItem("4K Ultra HD (3840 × 2160)", (3840, 2160))
