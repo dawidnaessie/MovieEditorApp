@@ -74,7 +74,7 @@ To build a standalone Windows `.exe` without requiring Python on the target mach
 
 ```powershell
 pip install pyinstaller
-pyinstaller --noconfirm --onedir --windowed --name "MovieEditor" --paths "src" src/main.py
+pyinstaller --noconfirm --onedir --windowed --name "MovieEditor" --paths "src" --copy-metadata imageio --copy-metadata moviepy src/main.py
 ```
 
 For full options (Single-File vs One-Folder, custom icons, GUI builder, troubleshooting), see the [BUILD_EXE.md](BUILD_EXE.md) guide.

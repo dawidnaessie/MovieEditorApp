@@ -24,11 +24,13 @@ pip install pyinstaller
 
 ### 3. Run the Build Command
 
+> **Note:** `--copy-metadata imageio --copy-metadata moviepy` is required so `MoviePy` and `ImageIO` can read package metadata at runtime without crashing.
+
 #### 🌟 Option A: Folder Distribution (Recommended — Fast Startup)
 Creates a folder containing the `.exe` and required dependencies. This provides the fastest application startup time for PyQt6/MoviePy:
 
 ```powershell
-pyinstaller --noconfirm --onedir --windowed --name "MovieEditor" --paths "src" src/main.py
+pyinstaller --noconfirm --onedir --windowed --name "MovieEditor" --paths "src" --copy-metadata imageio --copy-metadata moviepy src/main.py
 ```
 > **Output location:** `dist/MovieEditor/MovieEditor.exe`
 
@@ -38,7 +40,7 @@ pyinstaller --noconfirm --onedir --windowed --name "MovieEditor" --paths "src" s
 Packs everything into a single, self-contained executable:
 
 ```powershell
-pyinstaller --noconfirm --onefile --windowed --name "MovieEditor" --paths "src" src/main.py
+pyinstaller --noconfirm --onefile --windowed --name "MovieEditor" --paths "src" --copy-metadata imageio --copy-metadata moviepy src/main.py
 ```
 > **Output location:** `dist/MovieEditor.exe`
 
@@ -49,6 +51,8 @@ pyinstaller --noconfirm --onefile --windowed --name "MovieEditor" --paths "src" 
 | Flag | Purpose |
 | :--- | :--- |
 | `--paths "src"` | **Crucial:** Tells PyInstaller where to find project modules (`models`, `ui`, `engine`). |
+| `--copy-metadata imageio` | **Crucial:** Bundles `imageio` package metadata to prevent `PackageNotFoundError: No package metadata was found for imageio`. |
+| `--copy-metadata moviepy` | Bundles `moviepy` package metadata. |
 | `--windowed` (or `-w`) | Hides the background black console/terminal window so only the GUI appears. |
 | `--onefile` (or `-F`) | Packages everything into a single `.exe` file. |
 | `--onedir` (or `-D`) | Packages into a directory with `MovieEditor.exe` + `_internal` folder (fastest launch speed). |
@@ -63,7 +67,7 @@ pyinstaller --noconfirm --onefile --windowed --name "MovieEditor" --paths "src" 
 If you have a `.ico` file (e.g. `icon.ico`), add the `--icon` parameter:
 
 ```powershell
-pyinstaller --noconfirm --onedir --windowed --icon "icon.ico" --name "MovieEditor" --paths "src" src/main.py
+pyinstaller --noconfirm --onedir --windowed --icon "icon.ico" --name "MovieEditor" --paths "src" --copy-metadata imageio --copy-metadata moviepy src/main.py
 ```
 
 ---
@@ -87,6 +91,7 @@ If you prefer a point-and-click GUI instead of terminal commands:
    - **Onefile:** Select *One Directory* (recommended) or *One File*
    - **Console Window:** Select *Window Based (hide the console)*
    - **Advanced -> Additional Path (search path):** Add `src` (or the full path to `src/`)
+   - **Advanced -> Copy Metadata:** Add `imageio` and `moviepy`
    - **Icon (optional):** Browse to your `.ico` file
    - Click **CONVERT .PY TO .EXE**
 
@@ -94,16 +99,14 @@ If you prefer a point-and-click GUI instead of terminal commands:
 
 ## 🚀 1-Click Automated Build Script
 
-You can create a PowerShell build script to clean up previous builds and compile in one go.
-
-Run this directly in PowerShell:
+You can run this PowerShell snippet to clean up previous builds and compile in one go:
 
 ```powershell
 # Clean old build artifacts
-Remove-Item -Recurse -Force -ErrorAction SilentlyContinue build, dist
+Remove-Item -Recurse -Force -ErrorAction SilentlyContinue build, dist, MovieEditor.spec
 
 # Build the executable
-pyinstaller --noconfirm --onedir --windowed --name "MovieEditor" --paths "src" src/main.py
+pyinstaller --noconfirm --onedir --windowed --name "MovieEditor" --paths "src" --copy-metadata imageio --copy-metadata moviepy src/main.py
 
 Write-Host "`nBuild complete! Executable is at: dist/MovieEditor/MovieEditor.exe" -ForegroundColor Green
 ```
@@ -112,23 +115,27 @@ Write-Host "`nBuild complete! Executable is at: dist/MovieEditor/MovieEditor.exe
 
 ## 🛠️ Troubleshooting & Tips
 
-### 1. App Crashes Immediately on Launch Without Error
+### 1. `importlib.metadata.PackageNotFoundError: No package metadata was found for imageio`
+This occurs when MoviePy or ImageIO looks up their installed package version at runtime (`importlib.metadata.version('imageio')`), but PyInstaller does not bundle `.dist-info` metadata by default.
+- **Solution:** Add `--copy-metadata imageio --copy-metadata moviepy` to your PyInstaller command.
+
+### 2. App Crashes Immediately on Launch Without Error
 If the executable closes instantly upon launch, re-build **without** the `--windowed` flag to view error messages in the terminal:
 
 ```powershell
 # Build with console visible for debugging
-pyinstaller --noconfirm --onedir --name "MovieEditor_Debug" --paths "src" src/main.py
+pyinstaller --noconfirm --onedir --name "MovieEditor_Debug" --paths "src" --copy-metadata imageio --copy-metadata moviepy src/main.py
 ```
-Run `dist/MovieEditor_Debug/MovieEditor_Debug.exe` from PowerShell to see any missing module or runtime tracebacks.
+Run `dist/MovieEditor_Debug/MovieEditor_Debug.exe` from PowerShell to see any runtime tracebacks.
 
-### 2. MoviePy / FFmpeg Dependency
+### 3. MoviePy / FFmpeg Dependency
 MoviePy automatically bundles `imageio_ffmpeg` binary during the PyInstaller build via `pyinstaller-hooks-contrib`. If FFmpeg is ever missing on a target machine, ensure `imageio-ffmpeg` is installed in your `.venv` before running PyInstaller (`pip install imageio-ffmpeg`).
 
-### 3. Startup Speed Difference (One-File vs One-Folder)
+### 4. Startup Speed Difference (One-File vs One-Folder)
 - **`--onefile`**: On every launch, Windows extracts all DLLs, PyQt6 libraries, and Python runtimes to a temporary directory (`%TEMP%\_MEIxxxxxx`). This causes a 3–6 second delay on startup.
 - **`--onedir`**: Files are pre-extracted in the folder, so the app opens instantly (< 0.5s). For video editing tools, `--onedir` (zipped for distribution) is strongly recommended.
 
-### 4. Windows Defender / SmartScreen Warning
+### 5. Windows Defender / SmartScreen Warning
 Unsigned executables built with PyInstaller can occasionally trigger Windows SmartScreen ("Windows protected your PC").
 - Click **More info** -> **Run anyway**.
 - For public distribution, signing the binary with a code signing certificate or adding it to your antivirus exclusion list resolves this.
