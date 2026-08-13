@@ -30,7 +30,7 @@ pip install pyinstaller
 Creates a folder containing the `.exe` and required dependencies. This provides the fastest application startup time for PyQt6/MoviePy:
 
 ```powershell
-pyinstaller --noconfirm --onedir --windowed --name "MovieEditor" --paths "src" --copy-metadata imageio --copy-metadata moviepy src/main.py
+pyinstaller --noconfirm --onedir --windowed --name "MovieEditor" --icon "src/assets/icon.ico" --add-data "src/assets;assets" --paths "src" --copy-metadata imageio --copy-metadata moviepy src/main.py
 ```
 > **Output location:** `dist/MovieEditor/MovieEditor.exe`
 
@@ -40,7 +40,7 @@ pyinstaller --noconfirm --onedir --windowed --name "MovieEditor" --paths "src" -
 Packs everything into a single, self-contained executable:
 
 ```powershell
-pyinstaller --noconfirm --onefile --windowed --name "MovieEditor" --paths "src" --copy-metadata imageio --copy-metadata moviepy src/main.py
+pyinstaller --noconfirm --onefile --windowed --name "MovieEditor" --icon "src/assets/icon.ico" --add-data "src/assets;assets" --paths "src" --copy-metadata imageio --copy-metadata moviepy src/main.py
 ```
 > **Output location:** `dist/MovieEditor.exe`
 
@@ -51,6 +51,8 @@ pyinstaller --noconfirm --onefile --windowed --name "MovieEditor" --paths "src" 
 | Flag | Purpose |
 | :--- | :--- |
 | `--paths "src"` | **Crucial:** Tells PyInstaller where to find project modules (`models`, `ui`, `engine`). |
+| `--icon "src/assets/icon.ico"` | Attaches the multi-resolution application icon (16x16 up to 256x256) for Windows Explorer & taskbar. |
+| `--add-data "src/assets;assets"` | Bundles the icon and static assets inside the app so PyQt6 can set window & taskbar icons at runtime. |
 | `--copy-metadata imageio` | **Crucial:** Bundles `imageio` package metadata to prevent `PackageNotFoundError: No package metadata was found for imageio`. |
 | `--copy-metadata moviepy` | Bundles `moviepy` package metadata. |
 | `--windowed` (or `-w`) | Hides the background black console/terminal window so only the GUI appears. |
@@ -58,17 +60,19 @@ pyinstaller --noconfirm --onefile --windowed --name "MovieEditor" --paths "src" 
 | `--onedir` (or `-D`) | Packages into a directory with `MovieEditor.exe` + `_internal` folder (fastest launch speed). |
 | `--name "MovieEditor"` | Sets the output executable name to `MovieEditor.exe`. |
 | `--noconfirm` | Overwrites previous build output without prompting. |
-| `--icon "path/to/icon.ico"` | *(Optional)* Attaches a custom Windows desktop/taskbar application icon. |
 
 ---
 
-## 🎨 Adding a Custom App Icon
+## 🎨 Custom Application Icons (.ico) & Windows Explorer
 
-If you have a `.ico` file (e.g. `icon.ico`), add the `--icon` parameter:
+Windows Explorer requires `.ico` files to contain **multiple resolution layers** (`16x16`, `24x24`, `32x32`, `48x48`, `64x64`, `128x128`, `256x256`):
+- `16x16` / `24x24`: Used for Details View, Small Icons list, and Window Titlebar.
+- `32x32` / `48x48`: Used for Medium/Large Desktop and Folder icons.
+- `128x128` / `256x256`: Used for Extra Large view and Explorer Preview sidebar.
 
-```powershell
-pyinstaller --noconfirm --onedir --windowed --icon "icon.ico" --name "MovieEditor" --paths "src" --copy-metadata imageio --copy-metadata moviepy src/main.py
-```
+If an `.ico` file contains only a single high-resolution image (e.g. only 128x128), Windows Explorer falls back to the default Python icon for details/small icon views!
+
+The project now includes a multi-resolution icon in [`src/assets/icon.ico`](file:///c:/Users/rastisx/dawid/files/movieEditor/src/assets/icon.ico).
 
 ---
 
@@ -92,7 +96,8 @@ If you prefer a point-and-click GUI instead of terminal commands:
    - **Console Window:** Select *Window Based (hide the console)*
    - **Advanced -> Additional Path (search path):** Add `src` (or the full path to `src/`)
    - **Advanced -> Copy Metadata:** Add `imageio` and `moviepy`
-   - **Icon (optional):** Browse to your `.ico` file
+   - **Icon (optional):** Browse to `src/assets/icon.ico`
+   - **Advanced -> Add Data:** `src/assets;assets`
    - Click **CONVERT .PY TO .EXE**
 
 ---
@@ -105,8 +110,8 @@ You can run this PowerShell snippet to clean up previous builds and compile in o
 # Clean old build artifacts
 Remove-Item -Recurse -Force -ErrorAction SilentlyContinue build, dist, MovieEditor.spec
 
-# Build the executable
-pyinstaller --noconfirm --onedir --windowed --name "MovieEditor" --paths "src" --copy-metadata imageio --copy-metadata moviepy src/main.py
+# Build the executable with icon & metadata
+pyinstaller --noconfirm --onedir --windowed --name "MovieEditor" --icon "src/assets/icon.ico" --add-data "src/assets;assets" --paths "src" --copy-metadata imageio --copy-metadata moviepy src/main.py
 
 Write-Host "`nBuild complete! Executable is at: dist/MovieEditor/MovieEditor.exe" -ForegroundColor Green
 ```

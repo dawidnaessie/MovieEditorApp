@@ -1,10 +1,31 @@
+import os
 import sys
-from PyQt6.QtGui import QColor, QPalette
+import ctypes
+from PyQt6.QtGui import QColor, QPalette, QIcon
 from PyQt6.QtWidgets import QApplication
 from ui.main_window import MainWindow
 
+def get_resource_path(relative_path: str) -> str:
+    """Get absolute path to resource, works for dev and for PyInstaller bundle."""
+    if hasattr(sys, '_MEIPASS'):
+        return os.path.join(sys._MEIPASS, relative_path)
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), relative_path)
+
 def main():
+    # Set Windows AppUserModelID so the taskbar displays the custom icon rather than python.exe
+    if sys.platform == "win32":
+        try:
+            myappid = "movieeditor.desktop.app.1.0"
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
+        except Exception:
+            pass
+
     app = QApplication(sys.argv)
+    
+    # Configure application icon
+    icon_path = get_resource_path(os.path.join("assets", "icon.ico"))
+    if os.path.exists(icon_path):
+        app.setWindowIcon(QIcon(icon_path))
     
     # Configure modern dark Fusion theme
     app.setStyle("Fusion")
@@ -26,9 +47,11 @@ def main():
     app.setPalette(palette)
     
     window = MainWindow()
+    if os.path.exists(icon_path):
+        window.setWindowIcon(QIcon(icon_path))
     window.showMaximized()
     
     sys.exit(app.exec())
 
 if __name__ == "__main__":
-    main()
+    main()
